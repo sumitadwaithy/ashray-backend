@@ -18,6 +18,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.delete("/local/property/delete/{property_id}")
+def delete_property(property_id: str):
+    if property_id in db:
+        del db[property_id]
+        return {"status": "deleted"}
+    return {"status": "not_found"}
+
 # -------------------------
 # MODELS
 # -------------------------
