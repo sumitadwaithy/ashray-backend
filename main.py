@@ -10,8 +10,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://ashraygroup.in"
+        "https://ashraygroup.in",
         "https://www.ashraygroup.in"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
