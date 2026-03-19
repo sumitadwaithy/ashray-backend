@@ -40,6 +40,10 @@ class Property(BaseModel):
     description: str
     images: List[str] = []
     inventory: List = []
+    amenities: List[str] = []
+    nearbyPlaces: List[dict] = []
+    coordinates: List[float] = [21.1458, 79.0882]
+
     updatedAt: str = None
 
 
