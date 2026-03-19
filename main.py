@@ -1,34 +1,50 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
 from datetime import datetime
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# -------------------------
+# MODELS
+# -------------------------
 
-DATABASE = {
-    "properties": []
-}
+class Property(BaseModel):
+    id: str
+    title: str
+    price: float
+    plotSize: float
+    locality: str
+    city: str
+    description: str
+    images: List[str] = []
+    inventory: List = []
+    updatedAt: str = None
 
-@app.post("/property/upsert-bulk")
-def upsert_bulk(properties: list):
-    global DATABASE
 
-    for p in properties:
-        DATABASE["properties"] = [
-            prop for prop in DATABASE["properties"] if prop["id"] != p["id"]
-        ]
-        p["updatedAt"] = datetime.utcnow().isoformat()
-        DATABASE["properties"].append(p)
+# -------------------------
+# IN-MEMORY DATABASE
+# -------------------------
 
-    return {"status": "success", "count": len(properties)}
+db = {}
 
-@app.get("/property/all")
-def get_all():
-    return DATABASE["properties"]
+
+# -------------------------
+# ROUTES
+# -------------------------
+
+@app.get("/")
+def root():
+    return {"status": "API LIVE"}
+
+
+@app.post("/local/property/upsert")
+def upsert_property(property: Property):
+    property.updatedAt = datetime.utcnow().isoformat()
+    db[property.id] = property
+    return property
+
+
+@app.get("/local/property/all")
+def get_all_properties():
+    return list(db.values())
