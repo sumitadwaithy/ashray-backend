@@ -1,10 +1,12 @@
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, String, Float, JSON
-from database import Base, engine, SessionLocal
+from sqlalchemy import Column, String, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.types import JSON
 from datetime import datetime
-import json
+import os
 
 app = FastAPI()
 
@@ -25,10 +27,20 @@ app.add_middleware(
 )
 
 # -------------------------
-# DB INIT
+# DATABASE (RENDER SAFE)
 # -------------------------
-Base.metadata.create_all(bind=engine)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL not set")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# -------------------------
+# DB SESSION
+# -------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -36,9 +48,8 @@ def get_db():
     finally:
         db.close()
 
-
 # -------------------------
-# PROPERTY TABLE
+# MODELS
 # -------------------------
 class PropertyDB(Base):
     __tablename__ = "properties"
@@ -47,9 +58,6 @@ class PropertyDB(Base):
     data = Column(JSON)
 
 
-# -------------------------
-# CLIENT TABLE (PRIVATE CONTROL)
-# -------------------------
 class ClientDB(Base):
     __tablename__ = "clients"
 
@@ -59,20 +67,21 @@ class ClientDB(Base):
     password = Column(String)
     data = Column(JSON)
 
+# -------------------------
+# CREATE TABLES
+# -------------------------
+Base.metadata.create_all(bind=engine)
 
 # -------------------------
-# ROUTES
+# ROOT
 # -------------------------
-
 @app.get("/")
 def root():
     return {"status": "API LIVE"}
 
-
 # -------------------------
 # PROPERTY ROUTES
 # -------------------------
-
 @app.post("/local/property/upsert")
 def upsert_property(payload: dict, db: Session = Depends(get_db)):
     payload["updatedAt"] = datetime.utcnow().isoformat()
@@ -99,11 +108,9 @@ def delete_property(property_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "deleted"}
 
-
 # -------------------------
-# CLIENT ROUTES (SECURE)
+# CLIENT ROUTES
 # -------------------------
-
 @app.post("/client/upsert")
 def upsert_client(payload: dict, db: Session = Depends(get_db)):
     existing = db.query(ClientDB).filter(ClientDB.id == payload["id"]).first()
@@ -135,7 +142,6 @@ def client_login(payload: dict, db: Session = Depends(get_db)):
     if not client:
         return {"error": "Client not found"}
 
-    # 🔥 PASSWORD CHECK
     if payload.get("password") and client.password != payload["password"]:
         return {"error": "Invalid password"}
 
