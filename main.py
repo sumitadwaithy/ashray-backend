@@ -13,6 +13,7 @@ app = FastAPI()
 # CORS CONFIGURATION
 # -------------------------
 # Added your ledger URL, website URL, and AI Studio preview URLs
+# In main.py
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -20,8 +21,7 @@ app.add_middleware(
         "http://localhost:3001",
         "https://ashraygroup.in",
         "https://www.ashraygroup.in",
-        "https://ais-dev-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app",
-        "https://ais-pre-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app"
+        "*" # This allows all origins temporarily to ensure it works
     ],
     allow_credentials=True,
     allow_methods=["*"],
