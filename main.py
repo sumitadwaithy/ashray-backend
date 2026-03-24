@@ -1,53 +1,77 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import Column, String, create_engine
+from sqlalchemy import Column, String, create_engine, JSON, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.types import JSON
+from sqlalchemy.orm import sessionmaker, Session
+from pydantic import BaseModel
 from datetime import datetime
 import os
 
-app = FastAPI(title="Ashray Group Cloud API")
+app = FastAPI()
 
 # -------------------------
-# CORS CONFIGURATION (SECURE)
+# CORS CONFIGURATION
 # -------------------------
-origins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "https://ashraygroup.in",
-    "https://www.ashraygroup.in",
-    # Add your AI Studio Preview URL so sync works during development
-    "https://ais-dev-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app",
-    "https://ais-pre-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app"
-]
-
+# Added your ledger URL, website URL, and AI Studio preview URLs
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://ashraygroup.in",
+        "https://www.ashraygroup.in",
+        "https://ais-dev-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app",
+        "https://ais-pre-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------
-# DATABASE SETUP (PostgreSQL / Render)
+# DATABASE SETUP
 # -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
+# Fix for Render's postgres:// vs postgresql://
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 if not DATABASE_URL:
+    # Fallback for local testing if needed
     DATABASE_URL = "sqlite:///./test.db"
-
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # -------------------------
-# DB SESSION
+# MODELS
+# -------------------------
+class PropertyModel(Base):
+    __tablename__ = "properties"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON) # Stores the full property object from Ledger
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+class ClientModel(Base):
+    __tablename__ = "clients"
+    id = Column(String, primary_key=True, index=True)
+    phone = Column(String, unique=True, index=True)
+    password = Column(String) # For client portal login
+    data = Column(JSON) # Stores the full client object from Ledger
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
+
+# -------------------------
+# SCHEMAS
+# -------------------------
+class LoginRequest(BaseModel):
+    phone: str
+    password: str
+
+# -------------------------
+# DEPENDENCY
 # -------------------------
 def get_db():
     db = SessionLocal()
@@ -57,106 +81,84 @@ def get_db():
         db.close()
 
 # -------------------------
-# MODELS
-# -------------------------
-class PropertyDB(Base):
-    __tablename__ = "properties"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class ClientDB(Base):
-    __tablename__ = "clients"
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String)
-    phone = Column(String, index=True)
-    password = Column(String)
-    data = Column(JSON)
-
-Base.metadata.create_all(bind=engine)
-
-# -------------------------
-# ROUTES
+# ENDPOINTS
 # -------------------------
 
 @app.get("/")
-def root():
-    return {"status": "Ashray Group API is Online", "timestamp": datetime.utcnow()}
+def read_root():
+    return {"status": "Ashray Group Backend is Live"}
 
-# --- PROPERTY SYNC ---
-
+# --- Property Sync ---
 @app.post("/api/property/upsert")
-def upsert_property(payload: dict, db: Session = Depends(get_db)):
-    payload["lastSynced"] = datetime.utcnow().isoformat()
+def upsert_property(property_data: dict, db: Session = Depends(get_db)):
+    pid = property_data.get("id")
+    if not pid:
+        raise HTTPException(status_code=400, detail="Property ID is required")
     
-    existing = db.query(PropertyDB).filter(PropertyDB.id == payload["id"]).first()
-    if existing:
-        existing.data = payload
+    db_prop = db.query(PropertyModel).filter(PropertyModel.id == pid).first()
+    if db_prop:
+        db_prop.data = property_data
+        db_prop.last_updated = datetime.utcnow()
     else:
-        db.add(PropertyDB(id=payload["id"], data=payload))
+        new_prop = PropertyModel(id=pid, data=property_data)
+        db.add(new_prop)
     
     db.commit()
-    return {"status": "success", "id": payload["id"]}
+    return {"status": "success", "id": pid}
 
 @app.get("/api/property/all")
 def get_all_properties(db: Session = Depends(get_db)):
-    return [p.data for p in db.query(PropertyDB).all()]
+    props = db.query(PropertyModel).all()
+    return [p.data for p in props]
 
 @app.delete("/api/property/delete/{property_id}")
 def delete_property(property_id: str, db: Session = Depends(get_db)):
-    db.query(PropertyDB).filter(PropertyDB.id == property_id).delete()
+    db.query(PropertyModel).filter(PropertyModel.id == property_id).delete()
     db.commit()
     return {"status": "deleted"}
 
-# --- CLIENT SYNC & PORTAL ---
-
+# --- Client Sync & Portal ---
 @app.post("/api/client/upsert")
-def upsert_client(payload: dict, db: Session = Depends(get_db)):
-    payload["lastSynced"] = datetime.utcnow().isoformat()
+def upsert_client(client_data: dict, db: Session = Depends(get_db)):
+    cid = client_data.get("id")
+    phone = client_data.get("phone")
+    password = client_data.get("password", "ashray123") # Default password
     
-    existing = db.query(ClientDB).filter(ClientDB.id == payload["id"]).first()
+    if not cid or not phone:
+        raise HTTPException(status_code=400, detail="ID and Phone are required")
     
-    name = payload.get("name", "")
-    phone = payload.get("phone", "")
-    password = payload.get("password", "ashray123")
-
-    if existing:
-        existing.name = name
-        existing.phone = phone
-        existing.password = password
-        existing.data = payload
+    db_client = db.query(ClientModel).filter(ClientModel.id == cid).first()
+    if db_client:
+        db_client.phone = phone
+        db_client.data = client_data
+        db_client.password = password
+        db_client.last_updated = datetime.utcnow()
     else:
-        db.add(ClientDB(
-            id=payload["id"],
-            name=name,
-            phone=phone,
-            password=password,
-            data=payload
-        ))
-
+        new_client = ClientModel(id=cid, phone=phone, password=password, data=client_data)
+        db.add(new_client)
+    
     db.commit()
-    return {"status": "success", "message": f"Client {name} synced to portal"}
-
-@app.post("/api/client/login")
-def client_login(payload: dict, db: Session = Depends(get_db)):
-    phone = payload.get("phone")
-    password = payload.get("password")
-
-    client = db.query(ClientDB).filter(ClientDB.phone == phone).first()
-
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    if client.password != password:
-        raise HTTPException(status_code=401, detail="Invalid password")
-
-    return client.data
+    return {"status": "success", "id": cid}
 
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
-    return [c.data for c in db.query(ClientDB).all()]
+    clients = db.query(ClientModel).all()
+    return [c.data for c in clients]
 
 @app.delete("/api/client/delete/{client_id}")
 def delete_client(client_id: str, db: Session = Depends(get_db)):
-    db.query(ClientDB).filter(ClientDB.id == client_id).delete()
+    db.query(ClientModel).filter(ClientModel.id == client_id).delete()
     db.commit()
     return {"status": "deleted"}
+
+# --- Client Portal Login ---
+@app.post("/api/client/login")
+def client_login(req: LoginRequest, db: Session = Depends(get_db)):
+    client = db.query(ClientModel).filter(ClientModel.phone == req.phone).first()
+    if not client or client.password != req.password:
+        raise HTTPException(status_code=401, detail="Invalid phone or password")
+    
+    return {
+        "status": "success",
+        "client_info": client.data
+    }
