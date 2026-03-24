@@ -1,55 +1,60 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import Column, String, create_engine, JSON, DateTime
+from sqlalchemy import Column, String, create_engine, JSON, DateTime, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from pydantic import BaseModel
 from datetime import datetime
 import os
 import logging
 
-# Setup logging to help debug
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# --- 1. ROBUST CORS (Fixed for Credentials) ---
+# -------------------------
+# CORS CONFIGURATION
+# -------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows all origins
-    allow_credentials=False, # Set to False to allow "*" origins
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- 2. DATABASE SETUP ---
+# -------------------------
+# DATABASE SETUP
+# -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///./test.db"
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- 3. MODELS (Simplified to prevent schema crashes) ---
+# -------------------------
+# MODELS
+# -------------------------
 class PropertyModel(Base):
     __tablename__ = "properties"
     id = Column(String, primary_key=True, index=True)
-    data = Column(JSON) 
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    data = Column(JSON)
 
 class ClientModel(Base):
     __tablename__ = "clients"
     id = Column(String, primary_key=True, index=True)
-    data = Column(JSON) # We store everything here to be safe
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    data = Column(JSON)
 
 Base.metadata.create_all(bind=engine)
 
+# -------------------------
+# DEPENDENCY
+# -------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -57,55 +62,68 @@ def get_db():
     finally:
         db.close()
 
+# -------------------------
+# ENDPOINTS
+# -------------------------
+
 @app.get("/")
 def read_root():
-    return {"status": "Ashray Group Backend is Live"}
+    return {"status": "Ashray Backend is Running"}
 
-# --- 4. PROPERTY ENDPOINTS ---
+# --- PROPERTY ENDPOINTS ---
 @app.post("/api/property/upsert")
-def upsert_property(property_data: dict, db: Session = Depends(get_db)):
-    pid = property_data.get("id")
-    db_prop = db.query(PropertyModel).filter(PropertyModel.id == pid).first()
-    if db_prop:
-        db_prop.data = property_data
-        db_prop.last_updated = datetime.utcnow()
+async def upsert_property(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    prop_id = data.get("id")
+    if not prop_id:
+        raise HTTPException(status_code=400, detail="Property ID missing")
+    
+    existing = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
+    if existing:
+        existing.data = data
     else:
-        new_prop = PropertyModel(id=pid, data=property_data)
+        new_prop = PropertyModel(id=prop_id, data=data)
         db.add(new_prop)
+    
     db.commit()
-    return {"status": "success"}
+    return {"status": "success", "id": prop_id}
 
 @app.get("/api/property/all")
 def get_all_properties(db: Session = Depends(get_db)):
     props = db.query(PropertyModel).all()
     return [p.data for p in props]
 
-@app.delete("/api/property/delete/{property_id}")
-def delete_property(property_id: str, db: Session = Depends(get_db)):
-    db.query(PropertyModel).filter(PropertyModel.id == property_id).delete()
-    db.commit()
+@app.delete("/api/property/delete/{prop_id}")
+def delete_property(prop_id: str, db: Session = Depends(get_db)):
+    prop = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
+    if prop:
+        db.delete(prop)
+        db.commit()
     return {"status": "deleted"}
 
-# --- 5. CLIENT ENDPOINTS ---
+# --- CLIENT ENDPOINTS ---
 @app.post("/api/client/upsert")
-def upsert_client(client_data: dict, db: Session = Depends(get_db)):
-    cid = client_data.get("id")
-    db_client = db.query(ClientModel).filter(ClientModel.id == cid).first()
-    if db_client:
-        db_client.data = client_data
-        db_client.last_updated = datetime.utcnow()
+async def upsert_client(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    client_id = data.get("id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Client ID missing")
+    
+    existing = db.query(ClientModel).filter(ClientModel.id == client_id).first()
+    if existing:
+        existing.data = data
     else:
-        new_client = ClientModel(id=cid, data=client_data)
+        new_client = ClientModel(id=client_id, data=data)
         db.add(new_client)
+    
     db.commit()
-    return {"status": "success"}
+    return {"status": "success", "id": client_id}
 
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
     return [c.data for c in clients]
 
-# --- 6. CRASH-PROOF LOGIN LOGIC ---
 @app.post("/api/client/login")
 async def client_login(request: Request, db: Session = Depends(get_db)):
     try:
@@ -113,21 +131,32 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
         login_id = data.get("username")
         password = data.get("password")
         
+        logger.info(f"Login attempt for ID: {login_id}")
+        
         if not login_id or not password:
             return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
-        # We search inside the JSON 'data' column for every client
-        # This prevents "Column not found" errors
         all_clients = db.query(ClientModel).all()
+        logger.info(f"Checking through {len(all_clients)} clients in database...")
+        
         for client in all_clients:
             c = client.data
+            client_username = c.get("username")
+            client_phone = c.get("phone")
+            client_password = c.get("password")
+            
             # Check if ID matches username OR phone, and password matches
-            if (c.get("username") == login_id or c.get("phone") == login_id) and c.get("password") == password:
-                return {
-                    "status": "success",
-                    "client_info": c
-                }
+            if (client_username == login_id or client_phone == login_id):
+                if client_password == password:
+                    logger.info(f"✅ Login successful for: {login_id}")
+                    return {
+                        "status": "success",
+                        "client_info": c
+                    }
+                else:
+                    logger.warning(f"❌ Password mismatch for: {login_id}. Expected: {client_password}, Got: {password}")
         
+        logger.warning(f"❌ No client found matching ID: {login_id}")
         return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
     except Exception as e:
         logger.error(f"Login Error: {str(e)}")
