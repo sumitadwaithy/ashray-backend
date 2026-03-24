@@ -60,6 +60,11 @@ class ClientModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class TransactionModel(Base):
+    __tablename__ = "transactions"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 # Create tables
 try:
     Base.metadata.create_all(bind=engine)
@@ -201,3 +206,28 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Login Error: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(e)})
+        
+
+@app.post("/api/transaction/upsert")
+async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    
+    tx_id = data.get("id")
+    if not tx_id:
+        raise HTTPException(status_code=400, detail="Transaction ID missing")
+    
+    existing = db.query(TransactionModel).filter(TransactionModel.id == tx_id).first()
+    
+    if existing:
+        existing.data = data
+    else:
+        new_tx = TransactionModel(id=tx_id, data=data)
+        db.add(new_tx)
+    
+    db.commit()
+    return {"status": "success", "id": tx_id}
+
+@app.get("/api/transaction/all")
+def get_all_transactions(db: Session = Depends(get_db)):
+    txs = db.query(TransactionModel).all()
+    return [t.data for t in txs if t.data is not None]
