@@ -1,9 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import Column, String, create_engine, JSON, DateTime, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import Column, String, create_engine, DateTime, Integer, JSON
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from pydantic import BaseModel
 from datetime import datetime
 import os
@@ -29,13 +28,24 @@ app.add_middleware(
 # -------------------------
 # DATABASE SETUP
 # -------------------------
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
+
+# Fallback for local testing or if env var is missing
+if not DATABASE_URL:
+    logger.warning("⚠️ DATABASE_URL not found! Falling back to local SQLite (data will not persist on Render).")
+    DATABASE_URL = "sqlite:///./test.db"
+elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+try:
+    # For SQLite, we need check_same_thread=False
+    connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+except Exception as e:
+    logger.error(f"❌ Failed to initialize database engine: {str(e)}")
+    raise e
 
 # -------------------------
 # MODELS
@@ -50,7 +60,12 @@ class ClientModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
-Base.metadata.create_all(bind=engine)
+# Create tables
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅ Database tables initialized.")
+except Exception as e:
+    logger.error(f"❌ Failed to create tables: {str(e)}")
 
 # -------------------------
 # DEPENDENCY
@@ -73,7 +88,12 @@ def read_root():
 # --- PROPERTY ENDPOINTS ---
 @app.post("/api/property/upsert")
 async def upsert_property(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
     prop_id = data.get("id")
     if not prop_id:
         raise HTTPException(status_code=400, detail="Property ID missing")
@@ -91,10 +111,13 @@ async def upsert_property(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/property/all")
 def get_all_properties(db: Session = Depends(get_db)):
     props = db.query(PropertyModel).all()
-    return [p.data for p in props]
+    return [p.data for p in props if p.data is not None]
 
 @app.delete("/api/property/delete/{prop_id}")
 def delete_property(prop_id: str, db: Session = Depends(get_db)):
+    if not prop_id:
+        raise HTTPException(status_code=400, detail="Property ID missing")
+        
     prop = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
     if prop:
         db.delete(prop)
@@ -104,7 +127,12 @@ def delete_property(prop_id: str, db: Session = Depends(get_db)):
 # --- CLIENT ENDPOINTS ---
 @app.post("/api/client/upsert")
 async def upsert_client(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
     client_id = data.get("id")
     if not client_id:
         raise HTTPException(status_code=400, detail="Client ID missing")
@@ -122,12 +150,17 @@ async def upsert_client(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
-    return [c.data for c in clients]
+    return [c.data for c in clients if c.data is not None]
 
 @app.post("/api/client/login")
 async def client_login(request: Request, db: Session = Depends(get_db)):
     try:
-        data = await request.json()
+        try:
+            data = await request.json()
+        except Exception as e:
+            logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+            return JSONResponse(status_code=400, content={"message": "Invalid JSON body"})
+            
         login_id = data.get("username")
         password = data.get("password")
         
@@ -137,10 +170,17 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
             return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
         all_clients = db.query(ClientModel).all()
+        if all_clients is None:
+            all_clients = []
+            
         logger.info(f"Checking through {len(all_clients)} clients in database...")
         
         for client in all_clients:
             c = client.data
+            if not isinstance(c, dict):
+                logger.warning(f"⚠️ Skipping malformed client data for ID: {client.id}")
+                continue
+                
             client_username = c.get("username")
             client_phone = c.get("phone")
             client_password = c.get("password")
