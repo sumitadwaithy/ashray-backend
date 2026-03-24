@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import Column, String, create_engine, JSON, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -10,14 +11,12 @@ import os
 app = FastAPI()
 
 # -------------------------
-# CORS CONFIGURATION
+# FIXED CORS CONFIGURATION
 # -------------------------
-# Added your ledger URL, website URL, and AI Studio preview URLs
-# In main.py
-# In main.py on GitHub
+# Using allow_origin_regex allows credentials to work with any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # This allows all websites to connect to your backend
+    allow_origin_regex=".*", 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,7 +31,6 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 if not DATABASE_URL:
-    # Fallback for local testing if needed
     DATABASE_URL = "sqlite:///./test.db"
 
 engine = create_engine(DATABASE_URL)
@@ -45,25 +43,19 @@ Base = declarative_base()
 class PropertyModel(Base):
     __tablename__ = "properties"
     id = Column(String, primary_key=True, index=True)
-    data = Column(JSON) # Stores the full property object from Ledger
+    data = Column(JSON) 
     last_updated = Column(DateTime, default=datetime.utcnow)
 
 class ClientModel(Base):
     __tablename__ = "clients"
     id = Column(String, primary_key=True, index=True)
-    phone = Column(String, unique=True, index=True)
-    password = Column(String) # For client portal login
-    data = Column(JSON) # Stores the full client object from Ledger
+    phone = Column(String, index=True)
+    username = Column(String, index=True)
+    password = Column(String) 
+    data = Column(JSON) 
     last_updated = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
-
-# -------------------------
-# SCHEMAS
-# -------------------------
-class LoginRequest(BaseModel):
-    phone: str
-    password: str
 
 # -------------------------
 # DEPENDENCY
@@ -117,19 +109,21 @@ def delete_property(property_id: str, db: Session = Depends(get_db)):
 def upsert_client(client_data: dict, db: Session = Depends(get_db)):
     cid = client_data.get("id")
     phone = client_data.get("phone")
-    password = client_data.get("password", "ashray123") # Default password
+    username = client_data.get("username")
+    password = client_data.get("password", "ashray123")
     
-    if not cid or not phone:
-        raise HTTPException(status_code=400, detail="ID and Phone are required")
+    if not cid:
+        raise HTTPException(status_code=400, detail="Client ID is required")
     
     db_client = db.query(ClientModel).filter(ClientModel.id == cid).first()
     if db_client:
         db_client.phone = phone
+        db_client.username = username
         db_client.data = client_data
         db_client.password = password
         db_client.last_updated = datetime.utcnow()
     else:
-        new_client = ClientModel(id=cid, phone=phone, password=password, data=client_data)
+        new_client = ClientModel(id=cid, phone=phone, username=username, password=password, data=client_data)
         db.add(new_client)
     
     db.commit()
@@ -140,30 +134,24 @@ def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
     return [c.data for c in clients]
 
-@app.delete("/api/client/delete/{client_id}")
-def delete_client(client_id: str, db: Session = Depends(get_db)):
-    db.query(ClientModel).filter(ClientModel.id == client_id).delete()
-    db.commit()
-    return {"status": "deleted"}
-
-# --- Client Portal Login ---
+# --- FIXED LOGIN ENDPOINT ---
 @app.post("/api/client/login")
 async def client_login(data: dict, db: Session = Depends(get_db)):
-    login_id = data.get("username") # What the user typed in the ID field
+    login_id = data.get("username") # This can be ID or Phone
     password = data.get("password")
     
     if not login_id or not password:
         return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
-    # We search through all clients to find a match in the JSON data
-    clients = db.query(ClientModel).all()
-    for client in clients:
-        c_data = client.data
-        # Check if the ID matches the username OR the phone number
-        if (c_data.get("username") == login_id or c_data.get("phone") == login_id) and c_data.get("password") == password:
-            return {
-                "status": "success",
-                "client_info": c_data
-            }
+    # Search by username OR phone number
+    client = db.query(ClientModel).filter(
+        (ClientModel.username == login_id) | (ClientModel.phone == login_id)
+    ).first()
+
+    if client and client.password == password:
+        return {
+            "status": "success",
+            "client_info": client.data
+        }
     
     return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
