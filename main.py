@@ -1,5 +1,5 @@
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import Column, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -8,31 +8,39 @@ from sqlalchemy.types import JSON
 from datetime import datetime
 import os
 
-app = FastAPI()
+app = FastAPI(title="Ashray Group Cloud API")
 
 # -------------------------
-# CORS
+# CORS CONFIGURATION (SECURE)
 # -------------------------
+origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://ashraygroup.in",
+    "https://www.ashraygroup.in",
+    # Add your AI Studio Preview URL so sync works during development
+    "https://ais-dev-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app",
+    "https://ais-pre-ptg7ueqquqvmy2vuflbqsr-49739867371.asia-east1.run.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://ashraygroup.in",
-        "https://www.ashraygroup.in"
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------
-# DATABASE (RENDER SAFE)
+# DATABASE SETUP (PostgreSQL / Render)
 # -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise Exception("DATABASE_URL not set")
+    DATABASE_URL = "sqlite:///./test.db"
+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -53,96 +61,102 @@ def get_db():
 # -------------------------
 class PropertyDB(Base):
     __tablename__ = "properties"
-
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
-
 
 class ClientDB(Base):
     __tablename__ = "clients"
-
     id = Column(String, primary_key=True, index=True)
     name = Column(String)
-    phone = Column(String)
+    phone = Column(String, index=True)
     password = Column(String)
     data = Column(JSON)
 
-# -------------------------
-# CREATE TABLES
-# -------------------------
 Base.metadata.create_all(bind=engine)
 
 # -------------------------
-# ROOT
+# ROUTES
 # -------------------------
+
 @app.get("/")
 def root():
-    return {"status": "API LIVE"}
+    return {"status": "Ashray Group API is Online", "timestamp": datetime.utcnow()}
 
-# -------------------------
-# PROPERTY ROUTES
-# -------------------------
-@app.post("/local/property/upsert")
+# --- PROPERTY SYNC ---
+
+@app.post("/api/property/upsert")
 def upsert_property(payload: dict, db: Session = Depends(get_db)):
-    payload["updatedAt"] = datetime.utcnow().isoformat()
-
+    payload["lastSynced"] = datetime.utcnow().isoformat()
+    
     existing = db.query(PropertyDB).filter(PropertyDB.id == payload["id"]).first()
-
     if existing:
         existing.data = payload
     else:
         db.add(PropertyDB(id=payload["id"], data=payload))
-
+    
     db.commit()
-    return payload
+    return {"status": "success", "id": payload["id"]}
 
-
-@app.get("/local/property/all")
-def get_properties(db: Session = Depends(get_db)):
+@app.get("/api/property/all")
+def get_all_properties(db: Session = Depends(get_db)):
     return [p.data for p in db.query(PropertyDB).all()]
 
-
-@app.delete("/local/property/delete/{property_id}")
+@app.delete("/api/property/delete/{property_id}")
 def delete_property(property_id: str, db: Session = Depends(get_db)):
     db.query(PropertyDB).filter(PropertyDB.id == property_id).delete()
     db.commit()
     return {"status": "deleted"}
 
-# -------------------------
-# CLIENT ROUTES
-# -------------------------
-@app.post("/client/upsert")
+# --- CLIENT SYNC & PORTAL ---
+
+@app.post("/api/client/upsert")
 def upsert_client(payload: dict, db: Session = Depends(get_db)):
+    payload["lastSynced"] = datetime.utcnow().isoformat()
+    
     existing = db.query(ClientDB).filter(ClientDB.id == payload["id"]).first()
+    
+    name = payload.get("name", "")
+    phone = payload.get("phone", "")
+    password = payload.get("password", "ashray123")
 
     if existing:
-        existing.name = payload["name"]
-        existing.phone = payload["phone"]
-        existing.password = payload["password"]
+        existing.name = name
+        existing.phone = phone
+        existing.password = password
         existing.data = payload
     else:
         db.add(ClientDB(
             id=payload["id"],
-            name=payload["name"],
-            phone=payload["phone"],
-            password=payload["password"],
+            name=name,
+            phone=phone,
+            password=password,
             data=payload
         ))
 
     db.commit()
-    return {"status": "saved"}
+    return {"status": "success", "message": f"Client {name} synced to portal"}
 
-
-@app.post("/client/login")
+@app.post("/api/client/login")
 def client_login(payload: dict, db: Session = Depends(get_db)):
-    client = db.query(ClientDB).filter(
-        ClientDB.phone == payload["phone"]
-    ).first()
+    phone = payload.get("phone")
+    password = payload.get("password")
+
+    client = db.query(ClientDB).filter(ClientDB.phone == phone).first()
 
     if not client:
-        return {"error": "Client not found"}
+        raise HTTPException(status_code=404, detail="Client not found")
 
-    if payload.get("password") and client.password != payload["password"]:
-        return {"error": "Invalid password"}
+    if client.password != password:
+        raise HTTPException(status_code=401, detail="Invalid password")
 
     return client.data
+
+@app.get("/api/client/all")
+def get_all_clients(db: Session = Depends(get_db)):
+    return [c.data for c in db.query(ClientDB).all()]
+
+@app.delete("/api/client/delete/{client_id}")
+def delete_client(client_id: str, db: Session = Depends(get_db)):
+    db.query(ClientDB).filter(ClientDB.id == client_id).delete()
+    db.commit()
+    return {"status": "deleted"}
