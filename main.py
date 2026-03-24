@@ -14,15 +14,10 @@ app = FastAPI()
 # -------------------------
 # Added your ledger URL, website URL, and AI Studio preview URLs
 # In main.py
+# In main.py on GitHub
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://ashraygroup.in",
-        "https://www.ashraygroup.in",
-        "*" # This allows all origins temporarily to ensure it works
-    ],
+    allow_origins=["*"], # This allows all websites to connect to your backend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -154,22 +149,21 @@ def delete_client(client_id: str, db: Session = Depends(get_db)):
 # --- Client Portal Login ---
 @app.post("/api/client/login")
 async def client_login(data: dict, db: Session = Depends(get_db)):
-    # We now check for 'username' or 'phone'
-    username = data.get("username") or data.get("phone")
+    login_id = data.get("username") # What the user typed in the ID field
     password = data.get("password")
     
-    if not username or not password:
+    if not login_id or not password:
         return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
-    # Search by username OR phone number
-    client = db.query(ClientModel).filter(
-        (ClientModel.username == username) | (ClientModel.phone == username)
-    ).first()
-
-    if client and client.password == password:
-        return {
-            "status": "success",
-            "client_info": client.data
-        }
+    # We search through all clients to find a match in the JSON data
+    clients = db.query(ClientModel).all()
+    for client in clients:
+        c_data = client.data
+        # Check if the ID matches the username OR the phone number
+        if (c_data.get("username") == login_id or c_data.get("phone") == login_id) and c_data.get("password") == password:
+            return {
+                "status": "success",
+                "client_info": c_data
+            }
     
     return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
