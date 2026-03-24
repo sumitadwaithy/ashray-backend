@@ -153,12 +153,23 @@ def delete_client(client_id: str, db: Session = Depends(get_db)):
 
 # --- Client Portal Login ---
 @app.post("/api/client/login")
-def client_login(req: LoginRequest, db: Session = Depends(get_db)):
-    client = db.query(ClientModel).filter(ClientModel.phone == req.phone).first()
-    if not client or client.password != req.password:
-        raise HTTPException(status_code=401, detail="Invalid phone or password")
+async def client_login(data: dict, db: Session = Depends(get_db)):
+    # We now check for 'username' or 'phone'
+    username = data.get("username") or data.get("phone")
+    password = data.get("password")
     
-    return {
-        "status": "success",
-        "client_info": client.data
-    }
+    if not username or not password:
+        return JSONResponse(status_code=400, content={"message": "ID and Password required"})
+
+    # Search by username OR phone number
+    client = db.query(ClientModel).filter(
+        (ClientModel.username == username) | (ClientModel.phone == username)
+    ).first()
+
+    if client and client.password == password:
+        return {
+            "status": "success",
+            "client_info": client.data
+        }
+    
+    return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
