@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import Column, String, create_engine, DateTime, Integer, JSON
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
 import os
@@ -328,6 +329,60 @@ def delete_doc(doc_id: str, db: Session = Depends(get_db)):
         db.delete(doc)
         db.commit()
     return {"status": "deleted"}
+
+from fastapi import UploadFile, File
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/api/doc/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    clientId: str = None,
+    db: Session = Depends(get_db)
+):
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    doc_data = {
+        "id": f"doc_{int(datetime.utcnow().timestamp())}",
+        "name": file.filename,
+        "file_name": file.filename,
+        "clientId": clientId,
+        "date": datetime.utcnow().strftime("%Y-%m-%d")
+    }
+
+    db.add(DocModel(id=doc_data["id"], data=doc_data))
+    db.commit()
+
+    return doc_data
+
+@app.get("/api/doc/view/{filename}")
+def view_document(filename: str):
+    file_path = os.path.join("uploads", filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf"
+    )
+
+@app.get("/api/doc/download/{filename}")
+def download_document(filename: str):
+    file_path = os.path.join("uploads", filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )
 
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
