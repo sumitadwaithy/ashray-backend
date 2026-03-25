@@ -60,6 +60,16 @@ class ClientModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class ReferralModel(Base):
+    __tablename__ = "referrals"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class DocModel(Base):
+    __tablename__ = "docs"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class TransactionModel(Base):
     __tablename__ = "transactions"
     id = Column(String, primary_key=True, index=True)
@@ -157,6 +167,91 @@ def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
     return [c.data for c in clients if c.data is not None]
 
+# --- REFERRAL ENDPOINTS ---
+@app.post("/api/referral/upsert")
+async def upsert_referral(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    ref_id = data.get("id")
+    if not ref_id:
+        raise HTTPException(status_code=400, detail="Referral ID missing")
+    
+    existing = db.query(ReferralModel).filter(ReferralModel.id == ref_id).first()
+    if existing:
+        existing.data = data
+    else:
+        new_ref = ReferralModel(id=ref_id, data=data)
+        db.add(new_ref)
+    
+    db.commit()
+    return {"status": "success", "id": ref_id}
+
+@app.get("/api/referral/all")
+def get_all_referrals(db: Session = Depends(get_db)):
+    refs = db.query(ReferralModel).all()
+    return [r.data for r in refs if r.data is not None]
+
+# --- DOCUMENT ENDPOINTS ---
+@app.post("/api/doc/upsert")
+async def upsert_doc(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    doc_id = data.get("id")
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="Document ID missing")
+    
+    existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
+    if existing:
+        existing.data = data
+    else:
+        new_doc = DocModel(id=doc_id, data=data)
+        db.add(new_doc)
+    
+    db.commit()
+    return {"status": "success", "id": doc_id}
+
+@app.get("/api/doc/all")
+def get_all_docs(db: Session = Depends(get_db)):
+    docs = db.query(DocModel).all()
+    return [d.data for d in docs if d.data is not None]
+
+# --- TRANSACTION ENDPOINTS ---
+@app.post("/api/transaction/upsert")
+async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    tx_id = data.get("id")
+    if not tx_id:
+        raise HTTPException(status_code=400, detail="Transaction ID missing")
+    
+    existing = db.query(TransactionModel).filter(TransactionModel.id == tx_id).first()
+    if existing:
+        existing.data = data
+    else:
+        new_tx = TransactionModel(id=tx_id, data=data)
+        db.add(new_tx)
+    
+    db.commit()
+    return {"status": "success", "id": tx_id}
+
+@app.get("/api/transaction/all")
+def get_all_transactions(db: Session = Depends(get_db)):
+    txs = db.query(TransactionModel).all()
+    return [t.data for t in txs if t.data is not None]
+
+# --- LOGIN ENDPOINT ---
 @app.post("/api/client/login")
 async def client_login(request: Request, db: Session = Depends(get_db)):
     try:
@@ -194,6 +289,27 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
             if (client_username == login_id or client_phone == login_id):
                 if client_password == password:
                     logger.info(f"✅ Login successful for: {login_id}")
+                    
+                    # Fetch additional data for this client
+                    client_id = c.get("id")
+                    
+                    # Get transactions for this client
+                    all_txs = db.query(TransactionModel).all()
+                    client_txs = [t.data for t in all_txs if t.data and t.data.get("clientId") == client_id]
+                    
+                    # Get referrals for this client
+                    all_refs = db.query(ReferralModel).all()
+                    client_refs = [r.data for r in all_refs if r.data and r.data.get("referrerClientId") == client_id]
+                    
+                    # Get docs for this client
+                    all_docs = db.query(DocModel).all()
+                    client_docs = [d.data for d in all_docs if d.data and d.data.get("clientId") == client_id]
+                    
+                    # Attach to client info
+                    c["transactions"] = client_txs
+                    c["referrals"] = client_refs
+                    c["docs"] = client_docs
+                    
                     return {
                         "status": "success",
                         "client_info": c
@@ -206,28 +322,3 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Login Error: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(e)})
-        
-
-@app.post("/api/transaction/upsert")
-async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    
-    tx_id = data.get("id")
-    if not tx_id:
-        raise HTTPException(status_code=400, detail="Transaction ID missing")
-    
-    existing = db.query(TransactionModel).filter(TransactionModel.id == tx_id).first()
-    
-    if existing:
-        existing.data = data
-    else:
-        new_tx = TransactionModel(id=tx_id, data=data)
-        db.add(new_tx)
-    
-    db.commit()
-    return {"status": "success", "id": tx_id}
-
-@app.get("/api/transaction/all")
-def get_all_transactions(db: Session = Depends(get_db)):
-    txs = db.query(TransactionModel).all()
-    return [t.data for t in txs if t.data is not None]
