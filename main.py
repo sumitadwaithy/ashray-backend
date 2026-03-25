@@ -128,6 +128,27 @@ def get_all_properties(db: Session = Depends(get_db)):
     props = db.query(PropertyModel).all()
     return [p.data for p in props if p.data is not None]
 
+@app.post("/api/property/bulk-upsert")
+async def bulk_upsert_properties(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of properties")
+        
+        for data in data_list:
+            prop_id = data.get("id")
+            if not prop_id: continue
+            existing = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(PropertyModel(id=prop_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/api/property/delete/{prop_id}")
 def delete_property(prop_id: str, db: Session = Depends(get_db)):
     if not prop_id:
@@ -167,6 +188,27 @@ def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
     return [c.data for c in clients if c.data is not None]
 
+@app.post("/api/client/bulk-upsert")
+async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of clients")
+        
+        for data in data_list:
+            client_id = data.get("id")
+            if not client_id: continue
+            existing = db.query(ClientModel).filter(ClientModel.id == client_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(ClientModel(id=client_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- REFERRAL ENDPOINTS ---
 @app.post("/api/referral/upsert")
 async def upsert_referral(request: Request, db: Session = Depends(get_db)):
@@ -194,6 +236,37 @@ async def upsert_referral(request: Request, db: Session = Depends(get_db)):
 def get_all_referrals(db: Session = Depends(get_db)):
     refs = db.query(ReferralModel).all()
     return [r.data for r in refs if r.data is not None]
+
+@app.post("/api/referral/bulk-upsert")
+async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of referrals")
+        
+        for data in data_list:
+            ref_id = data.get("id")
+            if not ref_id: continue
+            existing = db.query(ReferralModel).filter(ReferralModel.id == ref_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(ReferralModel(id=ref_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/referral/delete/{ref_id}")
+def delete_referral(ref_id: str, db: Session = Depends(get_db)):
+    if not ref_id:
+        raise HTTPException(status_code=400, detail="Referral ID missing")
+    ref = db.query(ReferralModel).filter(ReferralModel.id == ref_id).first()
+    if ref:
+        db.delete(ref)
+        db.commit()
+    return {"status": "deleted"}
 
 # --- DOCUMENT ENDPOINTS ---
 @app.post("/api/doc/upsert")
@@ -223,6 +296,37 @@ def get_all_docs(db: Session = Depends(get_db)):
     docs = db.query(DocModel).all()
     return [d.data for d in docs if d.data is not None]
 
+@app.post("/api/doc/bulk-upsert")
+async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of docs")
+        
+        for data in data_list:
+            doc_id = data.get("id")
+            if not doc_id: continue
+            existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(DocModel(id=doc_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/doc/delete/{doc_id}")
+def delete_doc(doc_id: str, db: Session = Depends(get_db)):
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="Document ID missing")
+    doc = db.query(DocModel).filter(DocModel.id == doc_id).first()
+    if doc:
+        db.delete(doc)
+        db.commit()
+    return {"status": "deleted"}
+
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
 async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
@@ -250,6 +354,37 @@ async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
 def get_all_transactions(db: Session = Depends(get_db)):
     txs = db.query(TransactionModel).all()
     return [t.data for t in txs if t.data is not None]
+
+@app.post("/api/transaction/bulk-upsert")
+async def bulk_upsert_transactions(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of transactions")
+        
+        for data in data_list:
+            tx_id = data.get("id")
+            if not tx_id: continue
+            existing = db.query(TransactionModel).filter(TransactionModel.id == tx_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(TransactionModel(id=tx_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/transaction/delete/{tx_id}")
+def delete_transaction(tx_id: str, db: Session = Depends(get_db)):
+    if not tx_id:
+        raise HTTPException(status_code=400, detail="Transaction ID missing")
+    tx = db.query(TransactionModel).filter(TransactionModel.id == tx_id).first()
+    if tx:
+        db.delete(tx)
+        db.commit()
+    return {"status": "deleted"}
 
 # --- LOGIN ENDPOINT ---
 @app.post("/api/client/login")
