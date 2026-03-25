@@ -241,6 +241,7 @@ def get_all_referrals(db: Session = Depends(get_db)):
 async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db)):
     try:
         data_list = await request.json()
+        logger.info(f"Bulk Upsert Referrals: Received {len(data_list)} items")
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of referrals")
         
@@ -255,7 +256,7 @@ async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db))
         db.commit()
         return {"status": "success", "count": len(data_list)}
     except Exception as e:
-        logger.error(f"Bulk Upsert Error: {str(e)}")
+        logger.error(f"Bulk Upsert Referrals Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/referral/delete/{ref_id}")
@@ -300,6 +301,7 @@ def get_all_docs(db: Session = Depends(get_db)):
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     try:
         data_list = await request.json()
+        logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of docs")
         
@@ -314,7 +316,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "success", "count": len(data_list)}
     except Exception as e:
-        logger.error(f"Bulk Upsert Error: {str(e)}")
+        logger.error(f"Bulk Upsert Docs Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/doc/delete/{doc_id}")
@@ -444,6 +446,8 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
                     c["transactions"] = client_txs
                     c["referrals"] = client_refs
                     c["docs"] = client_docs
+                    
+                    logger.info(f"Returning data for client {client_id}: {len(client_txs)} txs, {len(client_refs)} refs, {len(client_docs)} docs")
                     
                     return {
                         "status": "success",
