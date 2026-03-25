@@ -241,9 +241,9 @@ def get_all_referrals(db: Session = Depends(get_db)):
 async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db)):
     try:
         data_list = await request.json()
-        logger.info(f"Bulk Upsert Referrals: Received {len(data_list)} items")
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of referrals")
+        logger.info(f"Bulk Upsert Referrals: Received {len(data_list)} items")
         
         for data in data_list:
             ref_id = data.get("id")
@@ -301,9 +301,9 @@ def get_all_docs(db: Session = Depends(get_db)):
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     try:
         data_list = await request.json()
-        logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of docs")
+        logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
         
         for data in data_list:
             doc_id = data.get("id")
@@ -461,3 +461,8 @@ async def client_login(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Login Error: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(e)})
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
