@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+import base64
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import Column, String, create_engine, DateTime, Integer, JSON
@@ -341,17 +342,16 @@ async def upload_document(
     clientId: str = None,
     db: Session = Depends(get_db)
 ):
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-
-    with open(file_path, "wb") as buffer:
-        buffer.write(await file.read())
-
+    file_content = await file.read()
+    base64_data = base64.b64encode(file_content).decode("utf-8")
+    
     doc_data = {
         "id": f"doc_{int(datetime.utcnow().timestamp())}",
         "name": file.filename,
         "file_name": file.filename,
         "clientId": clientId,
-        "date": datetime.utcnow().strftime("%Y-%m-%d")
+        "date": datetime.utcnow().strftime("%Y-%m-%d"),
+        "fileData": f"data:{file.content_type};base64,{base64_data}"
     }
 
     db.add(DocModel(id=doc_data["id"], data=doc_data))
@@ -360,29 +360,60 @@ async def upload_document(
     return doc_data
 
 @app.get("/api/doc/view/{filename}")
-def view_document(filename: str):
-    file_path = os.path.join("uploads", filename)
-
-    if not os.path.exists(file_path):
+def view_document(filename: str, db: Session = Depends(get_db)):
+    logger.info(f"🔍 Attempting to view document: {filename}")
+    
+    # Fetch all docs and filter in Python to avoid DB-specific JSON query issues
+    all_docs = db.query(DocModel).all()
+    doc = None
+    for d in all_docs:
+        if d.data.get("name") == filename:
+            doc = d
+            break
+            
+    if not doc:
+        logger.warning(f"⚠️ Document not found in DB: {filename}")
+        for d in all_docs:
+            logger.info(f"📄 Doc in DB: {d.data.get('name')}")
         raise HTTPException(status_code=404, detail="File not found")
-
-    return FileResponse(
-        path=file_path,
-        media_type="application/pdf"
-    )
+    
+    file_data = doc.data.get("fileData")
+    if not file_data:
+        logger.warning(f"⚠️ File data not found for doc: {filename}")
+        raise HTTPException(status_code=404, detail="File data not found")
+    
+    # Decode base64
+    header, encoded = file_data.split(",", 1)
+    decoded = base64.b64decode(encoded)
+    
+    return Response(content=decoded, media_type="application/pdf")
 
 @app.get("/api/doc/download/{filename}")
-def download_document(filename: str):
-    file_path = os.path.join("uploads", filename)
-
-    if not os.path.exists(file_path):
+def download_document(filename: str, db: Session = Depends(get_db)):
+    logger.info(f"🔍 Attempting to download document: {filename}")
+    
+    # Fetch all docs and filter in Python to avoid DB-specific JSON query issues
+    all_docs = db.query(DocModel).all()
+    doc = None
+    for d in all_docs:
+        if d.data.get("name") == filename:
+            doc = d
+            break
+            
+    if not doc:
+        logger.warning(f"⚠️ Document not found in DB: {filename}")
         raise HTTPException(status_code=404, detail="File not found")
-
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type="application/octet-stream"
-    )
+    
+    file_data = doc.data.get("fileData")
+    if not file_data:
+        logger.warning(f"⚠️ File data not found for doc: {filename}")
+        raise HTTPException(status_code=404, detail="File data not found")
+    
+    # Decode base64
+    header, encoded = file_data.split(",", 1)
+    decoded = base64.b64decode(encoded)
+    
+    return Response(content=decoded, media_type="application/octet-stream", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
