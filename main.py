@@ -865,79 +865,121 @@ def delete_transaction(tx_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
-# --- LOGIN ENDPOINT ---
-@app.post("/api/client/login")
-async def client_login(request: Request, db: Session = Depends(get_db)):
+# --- UNIFIED LOGIN ENDPOINT ---
+@app.post("/api/auth/login")
+async def unified_login(request: Request, db: Session = Depends(get_db)):
     try:
-        try:
-            data = await request.json()
-        except Exception as e:
-            logger.error(f"❌ Failed to parse JSON body: {str(e)}")
-            return JSONResponse(status_code=400, content={"message": "Invalid JSON body"})
-            
+        data = await request.json()
         login_id = data.get("username")
         password = data.get("password")
-        
-        logger.info(f"Login attempt for ID: {login_id}")
-        
+
+        logger.info(f"🔐 Login attempt: {login_id}")
+
         if not login_id or not password:
             return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
+        # =========================================================
+        # 1. CHECK CLIENTS
+        # =========================================================
         all_clients = db.query(ClientModel).all()
-        if all_clients is None:
-            all_clients = []
-            
-        logger.info(f"Checking through {len(all_clients)} clients in database...")
-        
+
         for client in all_clients:
             c = client.data
             if not isinstance(c, dict):
-                logger.warning(f"⚠️ Skipping malformed client data for ID: {client.id}")
                 continue
-                
-            client_username = c.get("username")
-            client_phone = c.get("phone")
-            client_password = c.get("password")
-            
-            # Check if ID matches username OR phone, and password matches
-            if (client_username == login_id or client_phone == login_id):
-                if client_password == password:
-                    logger.info(f"✅ Login successful for: {login_id}")
-                    
-                    # Fetch additional data for this client
+
+            if (
+                c.get("username") == login_id or
+                c.get("phone") == login_id
+            ):
+                if c.get("password") == password:
                     client_id = c.get("id")
-                    
-                    # Get transactions for this client
+
+                    # Attach transactions
                     all_txs = db.query(TransactionModel).all()
-                    client_txs = [t.data for t in all_txs if t.data and t.data.get("clientId") == client_id]
-                    
-                    # Get referrals for this client
+                    c["transactions"] = [
+                        t.data for t in all_txs
+                        if t.data and t.data.get("clientId") == client_id
+                    ]
+
+                    # Attach referrals
                     all_refs = db.query(ReferralModel).all()
-                    client_refs = [r.data for r in all_refs if r.data and r.data.get("referrerClientId") == client_id]
-                    
-                    # Get docs for this client
+                    c["referrals"] = [
+                        r.data for r in all_refs
+                        if r.data and r.data.get("referrerClientId") == client_id
+                    ]
+
+                    # Attach docs
                     all_docs = db.query(DocModel).all()
-                    client_docs = [d.data for d in all_docs if d.data and d.data.get("clientId") == client_id]
-                    
-                    # Attach to client info
-                    c["transactions"] = client_txs
-                    c["referrals"] = client_refs
-                    c["docs"] = client_docs
-                    
-                    logger.info(f"Returning data for client {client_id}: {len(client_txs)} txs, {len(client_refs)} refs, {len(client_docs)} docs")
-                    
+                    c["docs"] = [
+                        d.data for d in all_docs
+                        if d.data and d.data.get("clientId") == client_id
+                    ]
+
+                    logger.info(f"✅ CLIENT LOGIN SUCCESS: {client_id}")
+
                     return {
                         "status": "success",
-                        "client_info": c
+                        "role": "client",
+                        "data": c
                     }
+
                 else:
-                    logger.warning(f"❌ Password mismatch for: {login_id}. Expected: {client_password}, Got: {password}")
-        
-        logger.warning(f"❌ No client found matching ID: {login_id}")
+                    logger.warning(f"❌ Client password mismatch: {login_id}")
+
+        # =========================================================
+        # 2. CHECK INVESTORS
+        # =========================================================
+        all_investors = db.query(InvestorModel).all()
+
+        for investor in all_investors:
+            i = investor.data
+            if not isinstance(i, dict):
+                continue
+
+            if (
+                i.get("username") == login_id or
+                i.get("phone") == login_id or
+                i.get("email") == login_id
+            ):
+                if i.get("password") == password:
+                    investor_id = i.get("id")
+
+                    # Attach transactions
+                    all_txs = db.query(TransactionModel).all()
+                    i["transactions"] = [
+                        t.data for t in all_txs
+                        if t.data and t.data.get("investorId") == investor_id
+                    ]
+
+                    # Attach docs
+                    all_docs = db.query(DocModel).all()
+                    i["docs"] = [
+                        d.data for d in all_docs
+                        if d.data and d.data.get("investorId") == investor_id
+                    ]
+
+                    logger.info(f"✅ INVESTOR LOGIN SUCCESS: {investor_id}")
+
+                    return {
+                        "status": "success",
+                        "role": "investor",
+                        "data": i
+                    }
+
+                else:
+                    logger.warning(f"❌ Investor password mismatch: {login_id}")
+
+        # =========================================================
+        # 3. NOT FOUND
+        # =========================================================
+        logger.warning(f"❌ LOGIN FAILED: {login_id}")
         return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
+
     except Exception as e:
-        logger.error(f"Login Error: {str(e)}")
-        return JSONResponse(status_code=500, content={"message": "Internal Server Error", "details": str(e)})
+        logger.error(f"❌ LOGIN ERROR: {str(e)}")
+        return JSONResponse(status_code=500, content={"message": "Internal Server Error"})
+    
 
 if __name__ == "__main__":
     import uvicorn
