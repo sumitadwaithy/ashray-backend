@@ -487,6 +487,18 @@ def delete_referral(ref_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
+@app.delete("/api/doc/cleanup-reports")
+def cleanup_report_docs(db: Session = Depends(get_db)):
+    all_docs = db.query(DocModel).all()
+    deleted = 0
+    for d in all_docs:
+        data = d.data or {}
+        if data.get("category") == "REPORT" or data.get("type") == "virtual":
+            db.delete(d)
+            deleted += 1
+    db.commit()
+    return {"status": "success", "deleted": deleted}
+
 @app.post("/api/doc/bulk-upsert")
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     try:
