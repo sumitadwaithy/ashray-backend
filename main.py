@@ -34,7 +34,9 @@ DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
 
 # Fallback for local testing or if env var is missing
 if not DATABASE_URL:
-    logger.warning("⚠️ DATABASE_URL not found! Falling back to local SQLite (data will not persist on Render).")
+    logger.warning("⚠️ DATABASE_URL not set! Using local SQLite. Data will be LOST on Render restart!")
+    logger.warning("→ Set DATABASE_URL env var to a persistent PostgreSQL URL on Render dashboard.")
+    logger.warning("→ Render provides a free PostgreSQL DB: https://dashboard.render.com/new/database")
     DATABASE_URL = "sqlite:///./test.db"
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -75,16 +77,6 @@ class DocModel(Base):
 class TransactionModel(Base):
     __tablename__ = "transactions"
     id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class FolderModel(Base):
-    __tablename__ = "folders"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class CategoryModel(Base):
-    __tablename__ = "categories"
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     data = Column(JSON)
 
 class InvestorModel(Base):
@@ -171,138 +163,6 @@ def delete_investor(item_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
-# --- CATEGORY ENDPOINTS ---
-@app.get("/api/category/all")
-@app.get("/api/categories")
-def get_all_categories(db: Session = Depends(get_db)):
-    categories = db.query(CategoryModel).all()
-    return [c.data for c in categories if c.data is not None]
-
-@app.post("/api/category/upsert")
-@app.post("/api/categories")
-async def upsert_category(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-    except Exception as e:
-        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    cat_id = data.get("id")
-    if not cat_id:
-        # Auto-generate ID if missing
-        new_cat = CategoryModel(data=data)
-        db.add(new_cat)
-        db.flush() # Get the ID
-        data["id"] = new_cat.id
-        new_cat.data = data
-        db.commit()
-        return data
-    
-    existing = db.query(CategoryModel).filter(CategoryModel.id == cat_id).first()
-    if existing:
-        existing.data = data
-    else:
-        new_cat = CategoryModel(id=cat_id, data=data)
-        db.add(new_cat)
-    
-    db.commit()
-    return data
-
-@app.patch("/api/categories/{cat_id}")
-async def patch_category(cat_id: int, request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    existing = db.query(CategoryModel).filter(CategoryModel.id == cat_id).first()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Category not found")
-    
-    current_data = existing.data or {}
-    current_data.update(data)
-    existing.data = current_data
-    db.commit()
-    return existing.data
-
-@app.delete("/api/category/delete/{cat_id}")
-@app.delete("/api/categories/{cat_id}")
-def delete_category(cat_id: int, db: Session = Depends(get_db)):
-    cat = db.query(CategoryModel).filter(CategoryModel.id == cat_id).first()
-    if cat:
-        db.delete(cat)
-        db.commit()
-    return {"status": "deleted"}
-
-# --- FOLDER ENDPOINTS ---
-@app.get("/api/folder/all")
-@app.get("/api/folders")
-def get_all_folders(db: Session = Depends(get_db)):
-    logger.info("🔍 Received request for /api/folder/all")
-    folders = db.query(FolderModel).all()
-    logger.info(f"🔍 Found {len(folders)} folders in DB")
-    return [f.data for f in folders if f.data is not None]
-
-@app.post("/api/folder/upsert")
-@app.post("/api/folders")
-async def upsert_folder(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-    except Exception as e:
-        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    folder_id = str(data.get("id"))
-    if not folder_id or folder_id == "None":
-        raise HTTPException(status_code=400, detail="Folder ID missing")
-    
-    existing = db.query(FolderModel).filter(FolderModel.id == folder_id).first()
-    if existing:
-        existing.data = data
-    else:
-        new_folder = FolderModel(id=folder_id, data=data)
-        db.add(new_folder)
-    
-    db.commit()
-    return {"status": "success", "id": folder_id}
-
-@app.patch("/api/folders/{folder_id}")
-async def patch_folder(folder_id: int, request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    existing = db.query(FolderModel).filter(FolderModel.id == folder_id).first()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    
-    current_data = existing.data or {}
-    current_data.update(data)
-    existing.data = current_data
-    db.commit()
-    return existing.data
-
-@app.delete("/api/folder/delete/{folder_id}")
-@app.delete("/api/folders/{folder_id}")
-def delete_folder(folder_id: str, permanent: bool = False, db: Session = Depends(get_db)):
-    folder = db.query(FolderModel).filter(FolderModel.id == folder_id).first()
-    if folder:
-        if permanent:
-            db.delete(folder)
-        else:
-            data = folder.data.copy()
-            data["is_deleted"] = 1
-            folder.data = data
-        db.commit()
-    return {"status": "deleted" if permanent else "moved_to_trash"}
-
-@app.get("/api/folders/{folder_id}/contents")
-def get_folder_contents(folder_id: str, db: Session = Depends(get_db)):
-    # Get all files in this folder
-    all_docs = db.query(DocModel).all()
-    files = []
-    for d in all_docs:
-        if str(d.data.get("folder_id")) == folder_id or str(d.data.get("folderId")) == folder_id:
-            files.append({
-                "id": d.id,
-                "name": d.data.get("name"),
-                "path": d.data.get("name") # Simplified path
-            })
-    return {"files": files}
-
 # --- DOCUMENT/FILE ENDPOINTS ---
 @app.get("/api/doc/all")
 @app.get("/api/files")
@@ -380,7 +240,6 @@ def get_file_content(doc_id: str, db: Session = Depends(get_db)):
     media_type = header.split(":")[1].split(";")[0]
     return Response(content=decoded, media_type=media_type)
 
-@app.post("/api/documents")
 async def upload_document_v2(
     request: Request,
     db: Session = Depends(get_db)
@@ -426,12 +285,6 @@ def empty_trash(db: Session = Depends(get_db)):
         if d.data.get("is_deleted"):
             db.delete(d)
     
-    # Delete all folders marked as deleted
-    all_folders = db.query(FolderModel).all()
-    for f in all_folders:
-        if f.data.get("is_deleted"):
-            db.delete(f)
-            
     db.commit()
     return {"status": "success"}
 
@@ -452,40 +305,18 @@ def duplicate_file(doc_id: str, db: Session = Depends(get_db)):
     db.commit()
     return new_data
 
-@app.post("/api/folders/{folder_id}/duplicate")
-def duplicate_folder(folder_id: int, db: Session = Depends(get_db)):
-    existing = db.query(FolderModel).filter(FolderModel.id == folder_id).first()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    
-    new_data = existing.data.copy()
-    new_id = int(datetime.utcnow().timestamp())
-    new_data["id"] = new_id
-    new_data["name"] = f"Copy of {new_data['name']}"
-    new_data["created_at"] = datetime.utcnow().isoformat()
-    
-    new_folder = FolderModel(id=new_id, data=new_data)
-    db.add(new_folder)
-    db.commit()
-    return new_data
-
-# -------------------------
-# DEPENDENCY
-# -------------------------
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 # -------------------------
 # ENDPOINTS
 # -------------------------
 
 @app.get("/")
 def read_root():
-    return {"status": "Ashray Backend is Running"}
+    db_type = "SQLite (EPHEMERAL)" if "sqlite" in DATABASE_URL else "PostgreSQL (Persistent)"
+    return {
+        "status": "Ashray Backend is Running",
+        "database": db_type,
+        "hint": "Redeploy after setting DATABASE_URL to a PostgreSQL DB for persistent storage" if "sqlite" in DATABASE_URL else None
+    }
 
 # --- PROPERTY ENDPOINTS ---
 @app.post("/api/property/upsert")
@@ -656,34 +487,6 @@ def delete_referral(ref_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
-# --- DOCUMENT ENDPOINTS ---
-@app.post("/api/doc/upsert")
-async def upsert_doc(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-    except Exception as e:
-        logger.error(f"❌ Failed to parse JSON body: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    doc_id = str(data.get("id"))
-    if not doc_id or doc_id == "None":
-        raise HTTPException(status_code=400, detail="Document ID missing")
-    
-    existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
-    if existing:
-        existing.data = data
-    else:
-        new_doc = DocModel(id=doc_id, data=data)
-        db.add(new_doc)
-    
-    db.commit()
-    return {"status": "success", "id": doc_id}
-
-@app.get("/api/doc/all")
-def get_all_docs(db: Session = Depends(get_db)):
-    docs = db.query(DocModel).all()
-    return [d.data for d in docs if d.data is not None]
-
 @app.post("/api/doc/bulk-upsert")
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     try:
@@ -705,16 +508,6 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Bulk Upsert Docs Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/doc/delete/{doc_id}")
-def delete_doc(doc_id: str, db: Session = Depends(get_db)):
-    if not doc_id:
-        raise HTTPException(status_code=400, detail="Document ID missing")
-    doc = db.query(DocModel).filter(DocModel.id == doc_id).first()
-    if doc:
-        db.delete(doc)
-        db.commit()
-    return {"status": "deleted"}
 
 from fastapi import UploadFile, File
 
