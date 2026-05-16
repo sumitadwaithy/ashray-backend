@@ -545,14 +545,17 @@ def view_document(filename: str, db: Session = Depends(get_db)):
     all_docs = db.query(DocModel).all()
     doc = None
     for d in all_docs:
-        if d.data.get("name") == filename:
+        data = d.data or {}
+        if (
+            data.get("name") == filename or
+            data.get("file_name") == filename or
+            data.get("id") == filename
+        ):
             doc = d
             break
             
     if not doc:
         logger.warning(f"⚠️ Document not found in DB: {filename}")
-        for d in all_docs:
-            logger.info(f"📄 Doc in DB: {d.data.get('name')}")
         raise HTTPException(status_code=404, detail="File not found")
     
     file_data = doc.data.get("fileData")
@@ -577,7 +580,12 @@ def download_document(filename: str, db: Session = Depends(get_db)):
     all_docs = db.query(DocModel).all()
     doc = None
     for d in all_docs:
-        if d.data.get("name") == filename:
+        data = d.data or {}
+        if (
+            data.get("name") == filename or
+            data.get("file_name") == filename or
+            data.get("id") == filename
+        ):
             doc = d
             break
             
