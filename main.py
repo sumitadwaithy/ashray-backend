@@ -99,6 +99,15 @@ def get_db():
     finally:
         db.close()
 
+# --- HEALTH CHECK (for Render cold start detection) ---
+@app.get("/api/health")
+async def health_check(db: Session = Depends(get_db)):
+    try:
+        db.execute("SELECT 1")
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        return {"status": "degraded", "database": str(e)}
+
 # --- HELPER FOR GENERIC CRUD ---
 async def generic_upsert(request: Request, model, db: Session):
     try:
