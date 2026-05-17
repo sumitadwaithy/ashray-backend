@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # -------------------------
+# ROOT / HEALTH CHECK
+# -------------------------
+@app.get("/")
+@app.head("/")
+async def root():
+    return {"status": "ok", "service": "ashray-backend"}
+
+# -------------------------
 # CORS CONFIGURATION
 # -------------------------
 app.add_middleware(
