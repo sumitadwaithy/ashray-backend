@@ -1,0 +1,318 @@
+{
+  "pageErrors": [
+    {
+      "message": "Uncaught (in promise) SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+      "route": "http://localhost:3000/#/investors"
+    },
+    {
+      "message": "Uncaught (in promise) SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+      "route": "http://localhost:3000/#/investors"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "route": "http://localhost:3000/#/login"
+    },
+    {
+      "text": "Loading the image 'https://picsum.photos/800/600?random=1778698139370' violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com\". The action has been blocked.",
+      "route": "http://localhost:3000/#/properties"
+    },
+    {
+      "text": "Loading the image 'https://picsum.photos/800/600?random=1778698139370' violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com\". The action has been blocked.",
+      "route": "http://localhost:3000/#/properties"
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "https://picsum.photos/800/600?random=1778698139370",
+      "route": "http://localhost:3000/#/properties"
+    },
+    {
+      "url": "https://picsum.photos/800/600?random=1778698139370",
+      "route": "http://localhost:3000/#/properties"
+    }
+  ],
+  "results": [
+    {
+      "route": "/",
+      "name": "Dashboard",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/"
+    },
+    {
+      "route": "/daybook",
+      "name": "DayBook",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/daybook"
+    },
+    {
+      "route": "/kissan-khata",
+      "name": "KissanKhata",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/kissan-khata"
+    },
+    {
+      "route": "/add-kissan",
+      "name": "AddKissan",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-kissan"
+    },
+    {
+      "route": "/clients",
+      "name": "Clients",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/clients"
+    },
+    {
+      "route": "/add-client",
+      "name": "AddClient",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-client"
+    },
+    {
+      "route": "/investors",
+      "name": "Investors",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/investors"
+    },
+    {
+      "route": "/add-investor",
+      "name": "AddInvestor",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-investor"
+    },
+    {
+      "route": "/properties",
+      "name": "Properties",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/properties"
+    },
+    {
+      "route": "/add-property",
+      "name": "AddProperty",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-property"
+    },
+    {
+      "route": "/expenses",
+      "name": "Expenses",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/expenses"
+    },
+    {
+      "route": "/ledger",
+      "name": "Ledger",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/ledger"
+    },
+    {
+      "route": "/gst-book",
+      "name": "GSTBook",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/gst-book"
+    },
+    {
+      "route": "/staff-ledger",
+      "name": "StaffLedger",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/staff-ledger"
+    },
+    {
+      "route": "/add-staff",
+      "name": "AddStaff",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-staff"
+    },
+    {
+      "route": "/loan-ledger",
+      "name": "LoanLedger",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/loan-ledger"
+    },
+    {
+      "route": "/add-lending-loan",
+      "name": "AddLendingLoan",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-lending-loan"
+    },
+    {
+      "route": "/add-borrowing-loan",
+      "name": "AddBorrowingLoan",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-borrowing-loan"
+    },
+    {
+      "route": "/reports",
+      "name": "CAReports",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/reports"
+    },
+    {
+      "route": "/add-transaction",
+      "name": "AddTransaction",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-transaction"
+    },
+    {
+      "route": "/generate-noc",
+      "name": "GenerateNOC",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/generate-noc"
+    },
+    {
+      "route": "/add-pre-sale-noc",
+      "name": "AddPreSaleNOC",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-pre-sale-noc"
+    },
+    {
+      "route": "/add-post-sale-noc",
+      "name": "AddPostSaleNOC",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-post-sale-noc"
+    },
+    {
+      "route": "/add-loan-noc",
+      "name": "AddLoanNOC",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-loan-noc"
+    },
+    {
+      "route": "/add-post-job-noc",
+      "name": "AddPostJobNOC",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/add-post-job-noc"
+    },
+    {
+      "route": "/generate-cheque",
+      "name": "GenerateCheque",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/generate-cheque"
+    },
+    {
+      "route": "/pending-cheques",
+      "name": "PendingCheques",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/pending-cheques"
+    },
+    {
+      "route": "/pending-receipts",
+      "name": "PendingReceipts",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/pending-receipts"
+    },
+    {
+      "route": "/pending-agreements",
+      "name": "PendingAgreements",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/pending-agreements"
+    },
+    {
+      "route": "/generate-receipt",
+      "name": "ReceiptGenerator",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/generate-receipt"
+    },
+    {
+      "route": "/documents",
+      "name": "Documents",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/documents"
+    },
+    {
+      "route": "/bank-manager",
+      "name": "BankManager",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/bank-manager"
+    },
+    {
+      "route": "/settings",
+      "name": "Settings",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/settings"
+    },
+    {
+      "route": "/database",
+      "name": "DataBasePage",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/database"
+    },
+    {
+      "route": "/database/categories",
+      "name": "CategoriesPage",
+      "hasViteError": false,
+      "onLogin": false,
+      "bodyPreview": "AG\nAshray\nGROUP\nDashboard\nDay Book\nExpenses\nLedger\nKissan Khata\nProperties\nClients\nInvestors\nBank Manager\nStaff Ledger\nG",
+      "urlNow": "#/database/categories"
+    }
+  ]
+}

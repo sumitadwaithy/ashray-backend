@@ -1,0 +1,86 @@
+{
+  "name": "ashray-group-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"vite --strictPort --port 3000\" \"wait-on http://localhost:3000 && electron .\"",
+    "build": "vite build",
+    "lint": "eslint . --ext ts,tsx --max-warnings=0",
+    "electron": "electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@google/genai": "^1.47.0",
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "^4.2.1",
+    "better-sqlite3": "^12.8.0",
+    "browser-image-compression": "^2.0.2",
+    "cors": "^2.8.6",
+    "date-fns": "^4.1.0",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^3.0.5",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.559.0",
+    "motion": "^12.38.0",
+    "multer": "^2.1.1",
+    "puppeteer": "^24.43.1",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-leaflet": "^5.0.0",
+    "react-router-dom": "^7.10.1",
+    "twilio": "^5.13.0",
+    "ws": "^8.20.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/postcss": "^4.2.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.0.1",
+    "electron": "^41.1.1",
+    "electron-builder": "^25.0.5",
+    "electron-devtools-installer": "^4.0.0",
+    "electron-rebuild": "^3.2.9",
+    "eslint": "^10.3.0",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.2.4",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.8.2",
+    "typescript-eslint": "^8.59.3",
+    "vite": "^6.2.0",
+    "vitest": "^4.1.6",
+    "wait-on": "^7.0.1"
+  },
+  "build": {
+    "appId": "com.ashray.ledger",
+    "productName": "Ashray Ledger",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com https://picsum.photos https://fastly.picsum.photos; connect-src 'self' *; font-src 'self' data: https://fonts.gstatic.com; frame-src 'self' blob: data:; worker-src 'self' blob:;">
+  <title>Ashray Group Ledger</title>
+
+  
+
+  <!-- ✅ Compiled Tailwind CSS (built via Vite/PostCSS) -->
+  <link rel="stylesheet" href="/src/index.css" />
+
+  <!-- Base fallback styles (no runtime Tailwind config) -->
+  <style>
+    body {
+      background-color: #fff7ed;
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body class="bg-brand-50 bg-spiritual-pattern text-slate-900 antialiased selection:bg-brand-200 selection:text-brand-900">
+
+  <!-- MAIN APP ROOT -->
+  <div id="root"></div>
+
+  <!-- MODAL ROOT (Portal Target) -->
+  <div id="modal-root"></div>
+
+  <!-- App Entry -->
+  <script type="module" src="/src/index.tsx"></script>
+
+</body>
+</html>
