@@ -281,10 +281,12 @@ def get_all_docs(db: Session = Depends(get_db)):
             "sha256_hash": d.sha256_hash,
             "fileData": None,
         })
-    virtual = db.query(DocModel).all()
-    for d in virtual:
-        if d.data and d.data.get("type") == "virtual":
-            all_docs.append(d.data)
+    migrated_ids = {r[0] for r in db.query(DocumentModel.id).all()}
+    old_docs = db.query(DocModel).all()
+    for d in old_docs:
+        if d.data is None or d.id in migrated_ids:
+            continue
+        all_docs.append(d.data)
     return all_docs
 
 @app.post("/api/doc/upsert")

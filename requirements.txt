@@ -5,3 +5,6 @@ psycopg2-binary
 pydantic
 python-multipart
 httpx
+aiofiles
+pillow
+pikepdf
