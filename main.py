@@ -720,7 +720,8 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
 
             if (
                 c.get("username") == login_id or
-                c.get("phone") == login_id
+                c.get("phone") == login_id or
+                c.get("name") == login_id
             ):
                 if c.get("password") == password:
                     client_id = c.get("id")
