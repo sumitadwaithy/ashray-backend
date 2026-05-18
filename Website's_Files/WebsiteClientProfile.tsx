@@ -70,7 +70,7 @@ interface ClientProfileProps {
 }
 
 export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handleLogout, docs }) => {
-  const { properties, referrals, addReferral, transactions } = useData();
+  const { properties, referrals, addReferral, transactions, pendingReceipts } = useData();
   const { t } = useLanguage();
   const ledgerRef = useRef<HTMLDivElement>(null);
   
@@ -78,6 +78,13 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handl
   const [selectedInvestmentId, setSelectedInvestmentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'financials' | 'documents' | 'referrals' | 'profile'>('financials');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+  const [viewReceiptTx, setViewReceiptTx] = useState<any>(null);
+
+  const getReceiptStatus = (txId: string) => {
+    const receipt = pendingReceipts?.find((r: any) => r.transactionId === txId);
+    if (!receipt) return 'none';
+    return receipt.printed ? 'printed' : 'pending';
+  };
 
   // Referral Modal State
   const [isReferralModalOpen, setIsReferralModalOpen] = useState(false);
@@ -124,7 +131,6 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handl
         description: tx.particulars,
         paymentMode: tx.method,
         reference: tx.referenceId,
-        receiptId: tx.receiptId,
         entryType: 'Payment' as const
       }));
 
@@ -387,16 +393,29 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handl
                                                             <td className="px-6 py-4 text-right text-gray-300">---</td>
                                                             <td className={`px-6 py-4 text-right font-bold ${entry.entryType === 'Bonus' ? 'text-orange-600' : 'text-green-700'}`}>{entry.amount.toLocaleString('en-IN')}</td>
                                                             <td className="px-6 py-4 text-right font-bold">{entry.balanceAfter.toLocaleString('en-IN')}</td>
-                                                            <td className="px-6 py-4 text-center print:hidden">
-                                                              {entry.receiptId ? (
-                                                                <a href={`${BACKEND_URL}/api/doc/view/${encodeURIComponent(entry.receiptId)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-[10px] font-bold rounded-lg hover:bg-red-700 transition-all shadow-sm">
-                                                                  <Download size={12}/> Receipt
-                                                                </a>
-                                                              ) : (
-                                                                <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-400 text-[10px] font-bold rounded-lg border border-red-200">
-                                                                  <FileText size={12}/> Receipt
-                                                                </span>
-                                                              )}
+                                                             <td className="px-6 py-4 text-center print:hidden">
+                                                              {(() => {
+                                                                const status = getReceiptStatus(entry.id);
+                                                                if (status === 'printed') {
+                                                                  return (
+                                                                    <button onClick={() => setViewReceiptTx(entry)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm">
+                                                                      <Eye size={12}/> Receipt
+                                                                    </button>
+                                                                  );
+                                                                }
+                                                                if (status === 'pending') {
+                                                                  return (
+                                                                    <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-500 text-[10px] font-bold rounded-lg border border-red-300 animate-pulse">
+                                                                      <FileText size={12}/> Receipt
+                                                                    </span>
+                                                                  );
+                                                                }
+                                                                return (
+                                                                  <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-400 text-[10px] font-bold rounded-lg border border-slate-200">
+                                                                    <FileText size={12}/> Receipt
+                                                                  </span>
+                                                                );
+                                                              })()}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -482,137 +501,147 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handl
                             )}
                             
                             {activeTab === 'profile' && (
-                                <div className="animate-fade-in">
-                                  <div className="flex items-center gap-2 mb-6">
-                                    <div className="w-1.5 h-6 bg-red-600 rounded-full"></div>
-                                    <h3 className="font-bold text-gray-800 uppercase text-xs tracking-widest">Profile & KYC</h3>
-                                  </div>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-
-                                    {/* Personal Identity */}
-                                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                                      <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
-                                          <User size={16} />
-                                        </div>
-                                        <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Personal Identity</h3>
-                                      </div>
-                                      <div className="p-5 space-y-4">
-                                        <div className="flex justify-between items-center pb-3 border-b border-gray-50">
-                                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Guardian Name</span>
-                                          <span className="text-xs font-bold text-gray-800 text-right">{currentUser.fatherName || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center pb-3 border-b border-gray-50">
-                                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Occupation</span>
-                                          <span className="text-xs font-bold text-gray-800 text-right">{currentUser.occupation || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center pb-3 border-b border-gray-50">
-                                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Gender / Age</span>
-                                          <span className="text-xs font-bold text-gray-800 text-right">{currentUser.gender || 'N/A'} • {currentUser.age || 'N/A'} Yrs</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Date of Birth</span>
-                                          <span className="text-[11px] font-mono font-bold text-gray-600 text-right">{currentUser.dob || '-'}</span>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* Contact & Address */}
-                                    <div className="space-y-6">
-                                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                                        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
-                                          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                                            <Mail size={16} />
-                                          </div>
-                                          <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Contact Details</h3>
-                                        </div>
-                                        <div className="p-5 space-y-4">
-                                          <div className="flex justify-between items-center pb-3 border-b border-gray-50">
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Phone</span>
-                                            <span className="text-xs font-bold text-gray-800">{currentUser.phone || '-'}</span>
-                                          </div>
-                                          <div className="flex justify-between items-center">
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Email</span>
-                                            <span className="text-xs font-bold text-gray-800">{currentUser.email || '-'}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                                        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
-                                          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                                            <MapPin size={16} />
-                                          </div>
-                                          <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Address</h3>
-                                        </div>
-                                        <div className="p-5">
-                                          <p className="text-sm font-bold text-gray-700 leading-relaxed mb-2">{currentUser.address || '-'}</p>
-                                          {(currentUser.district || currentUser.state || currentUser.pincode) && (
-                                            <div className="flex flex-wrap gap-2">
-                                              {currentUser.district && <span className="px-2 py-1 bg-gray-50 text-gray-600 rounded text-[10px] font-bold uppercase">{currentUser.district}</span>}
-                                              {currentUser.state && <span className="px-2 py-1 bg-gray-50 text-gray-600 rounded text-[10px] font-bold uppercase">{currentUser.state}</span>}
-                                              {currentUser.pincode && <span className="px-2 py-1 bg-gray-50 text-gray-600 rounded text-[10px] font-bold uppercase tracking-widest">{currentUser.pincode}</span>}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* KYC & Bank Details */}
-                                    <div className="space-y-6">
-                                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                                        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
-                                          <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-                                            <Shield size={16} />
-                                          </div>
-                                          <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Statutory KYC</h3>
-                                        </div>
-                                        <div className="p-5 space-y-4">
-                                          <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
-                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">PAN Card</span>
-                                            <span className="text-xs font-black text-gray-800 font-mono tracking-widest">{currentUser.pan || '-'}</span>
-                                          </div>
-                                          <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
-                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">GSTIN</span>
-                                            <span className="text-xs font-black text-gray-800 font-mono tracking-widest">{currentUser.gstin || '-'}</span>
-                                          </div>
-                                          <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
-                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Aadhaar</span>
-                                            <span className="text-xs font-black text-gray-800 font-mono tracking-widest">{currentUser.aadhaar || '-'}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-lg relative">
-                                        <div className="absolute top-0 right-0 p-6 opacity-5">
-                                          <Landmark size={64} className="text-white" />
-                                        </div>
-                                        <div className="p-4 border-b border-gray-800/50 bg-white/5 flex items-center gap-3 relative z-10">
-                                          <div className="w-8 h-8 rounded-lg bg-white/10 text-white flex items-center justify-center">
-                                            <Landmark size={16} />
-                                          </div>
-                                          <h3 className="text-xs font-black text-white uppercase tracking-widest">Settlement Account</h3>
-                                        </div>
-                                        <div className="p-5 relative z-10">
-                                          <div className="mb-4">
-                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name</span>
-                                            <span className="text-sm font-black text-white tracking-tight">{currentUser.bankName || '-'}</span>
-                                          </div>
-                                          <div className="pt-4 border-t border-gray-800 flex justify-between items-end">
+                                <div className="animate-fade-in max-w-4xl mx-auto py-4">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                                        {/* Identity & Contact Group */}
+                                        <div className="space-y-8">
+                                            
+                                            {/* Group 1: Personal Details */}
                                             <div>
-                                              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Account Number</span>
-                                              <span className="text-sm font-mono font-bold text-gray-200 tracking-tighter">{currentUser.accountNumber ? `****${currentUser.accountNumber.slice(-4)}` : '-'}</span>
+                                                <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest mb-4 border-b border-gray-200 pb-2">Personal Details</h3>
+                                                <dl className="space-y-4 text-sm">
+                                                    <div className="flex justify-between items-center group">
+                                                        <dt className="text-gray-500 font-medium">Guardian Name</dt>
+                                                        <dd className="font-semibold text-gray-900">{currentUser.fatherName || '-'}</dd>
+                                                    </div>
+                                                    <div className="flex justify-between items-center group">
+                                                        <dt className="text-gray-500 font-medium">Occupation</dt>
+                                                        <dd className="font-semibold text-gray-900">{currentUser.occupation || '-'}</dd>
+                                                    </div>
+                                                    <div className="flex justify-between items-center group">
+                                                        <dt className="text-gray-500 font-medium">Gender & Age</dt>
+                                                        <dd className="font-semibold text-gray-900">{currentUser.gender || 'N/A'} <span className="text-gray-300 mx-1">•</span> {currentUser.age || 'N/A'} Yrs</dd>
+                                                    </div>
+                                                    <div className="flex justify-between items-center group">
+                                                        <dt className="text-gray-500 font-medium">Date of Birth</dt>
+                                                        <dd className="font-mono text-xs font-bold text-gray-700 bg-gray-50 px-2 py-1 rounded border border-gray-100">{currentUser.dob || '-'}</dd>
+                                                    </div>
+                                                </dl>
                                             </div>
-                                            <div className="text-right">
-                                              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider block mb-1">IFSC Code</span>
-                                              <span className="text-xs font-mono font-bold text-gray-300 tracking-tighter">{currentUser.ifscCode || '-'}</span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
 
-                                  </div>
+                                            {/* Group 2: Contact Info */}
+                                            <div>
+                                                <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest mb-4 border-b border-gray-200 pb-2">Contact Details</h3>
+                                                <dl className="space-y-4 text-sm">
+                                                    <div className="flex justify-between items-center">
+                                                        <dt className="text-gray-500 font-medium flex items-center gap-2"><Phone size={14} className="text-gray-400"/> Phone</dt>
+                                                        <dd className="font-mono text-xs font-bold text-gray-900">{currentUser.phone || '-'}</dd>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <dt className="text-gray-500 font-medium flex items-center gap-2"><Mail size={14} className="text-gray-400"/> Email</dt>
+                                                        <dd className="font-semibold text-gray-900">{currentUser.email || '-'}</dd>
+                                                    </div>
+                                                    <div className="pt-2">
+                                                        <dt className="text-gray-500 font-medium flex items-center gap-2 mb-2"><MapPin size={14} className="text-gray-400"/> Registered Address</dt>
+                                                        <dd className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                                                            <p className="text-gray-800 font-medium leading-relaxed mb-2">
+                                                                {currentUser.address || '-'}
+                                                            </p>
+                                                            {(currentUser.district || currentUser.state || currentUser.pincode) && (
+                                                                <p className="text-xs text-gray-500 font-bold uppercase tracking-wide">
+                                                                    {[currentUser.district, currentUser.state, currentUser.pincode].filter(Boolean).join(', ')}
+                                                                </p>
+                                                            )}
+                                                        </dd>
+                                                    </div>
+                                                </dl>
+                                            </div>
+                                        </div>
+
+                                        {/* KYC & Financials Group */}
+                                        <div className="space-y-8">
+                                            
+                                            {/* Group 3: Statutory KYC */}
+                                            <div>
+                                                <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest mb-4 border-b border-gray-200 pb-2">Statutory KYC</h3>
+                                                <div className="flex flex-col gap-3">
+                                                    <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-white shadow-sm hover:border-gray-300 transition-colors">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                                                                <FileText size={14} className="text-gray-500" />
+                                                            </div>
+                                                            <span className="font-bold text-gray-700 text-sm">PAN Card</span>
+                                                        </div>
+                                                        <span className="font-mono font-bold tracking-widest text-gray-900">{currentUser.pan || '-'}</span>
+                                                    </div>
+                                                    <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-white shadow-sm hover:border-gray-300 transition-colors">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                                                                <Shield size={14} className="text-gray-500" />
+                                                            </div>
+                                                            <span className="font-bold text-gray-700 text-sm">Aadhaar</span>
+                                                        </div>
+                                                        <span className="font-mono font-bold tracking-widest text-gray-900">{currentUser.aadhaar || '-'}</span>
+                                                    </div>
+                                                    <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-white shadow-sm hover:border-gray-300 transition-colors">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center border border-gray-100">
+                                                                <Briefcase size={14} className="text-gray-500" />
+                                                            </div>
+                                                            <span className="font-bold text-gray-700 text-sm">GSTIN</span>
+                                                        </div>
+                                                        <span className="font-mono font-bold tracking-widest text-gray-900">{currentUser.gstin || '-'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Group 4: Settlement Account */}
+                                            <div>
+                                                <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest mb-4 border-b border-gray-200 pb-2">Settlement Account</h3>
+                                                <div className="relative rounded-2xl overflow-hidden bg-gray-900 p-6 shadow-xl pt-8 pb-10">
+                                                    {/* Card Pattern overlay */}
+                                                    <div className="absolute inset-0 opacity-[0.03]" style={{backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '12px 12px'}}></div>
+                                                    <div className="absolute right-0 top-0 translate-x-1/4 -translate-y-1/4 opacity-10 pointer-events-none">
+                                                        <Landmark size={180} className="text-white" />
+                                                    </div>
+                                                    
+                                                    <div className="relative z-10">
+                                                        <div className="flex justify-between items-end mb-8">
+                                                            <div>
+                                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Bank Name</p>
+                                                                <p className="text-xl text-white font-playfair tracking-wide">{currentUser.bankName || 'Not Provided'}</p>
+                                                            </div>
+                                                            <div className="w-10 h-8 rounded bg-gray-800/80 border border-gray-700/50 flex items-center justify-center shadow-inner">
+                                                                <div className="w-4 h-4 rounded-full bg-gray-600/50 shadow-inner"></div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="mb-6">
+                                                            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-2">Account Number</p>
+                                                            <p className="text-white font-mono tracking-widest text-xl drop-shadow-sm font-medium">
+                                                                {currentUser.accountNumber ? `•••• •••• •••• ${currentUser.accountNumber.slice(-4)}` : '•••• •••• •••• ••••'}
+                                                            </p>
+                                                        </div>
+                                                        
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <div>
+                                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">IFSC Code</p>
+                                                                <p className="text-gray-200 font-mono tracking-wider font-bold">{currentUser.ifscCode || '---'}</p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Status</p>
+                                                                <div className="flex items-center gap-1.5 justify-end">
+                                                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                                                                    <span className="text-emerald-400 font-bold text-[10px] uppercase tracking-wider">Active</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -750,6 +779,58 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({ currentUser, handl
                     </>
                 )}
             </div>
+        </div>
+      )}
+
+      {viewReceiptTx && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-xl relative">
+            <div className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Receipt</h3>
+              <button onClick={() => setViewReceiptTx(null)} className="p-2 hover:bg-gray-100 rounded-full transition">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="border-2 border-gray-200 rounded-xl p-6 bg-white shadow-sm">
+                <div className="text-center mb-6 border-b border-gray-100 pb-4">
+                  <h2 className="text-xl font-black text-gray-800">Ashray Group</h2>
+                  <p className="text-[10px] text-gray-500 mt-1">Payment Receipt</p>
+                </div>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between border-b border-dashed border-gray-200 pb-2">
+                    <span className="text-gray-500">Date</span>
+                    <span className="font-bold">{viewReceiptTx.date}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-gray-200 pb-2">
+                    <span className="text-gray-500">Payee</span>
+                    <span className="font-bold">{viewReceiptTx.partyName || viewReceiptTx.description || viewReceiptTx.particulars || '-'}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-gray-200 pb-2">
+                    <span className="text-gray-500">Amount</span>
+                    <span className="font-bold text-green-700">₹{viewReceiptTx.amount?.toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-gray-200 pb-2">
+                    <span className="text-gray-500">Mode</span>
+                    <span className="font-bold">{viewReceiptTx.paymentMode || viewReceiptTx.method || '-'}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-gray-200 pb-2">
+                    <span className="text-gray-500">Reference</span>
+                    <span className="font-bold">{viewReceiptTx.reference || viewReceiptTx.referenceId || '-'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Description</span>
+                    <span className="font-bold text-right max-w-[60%]">{viewReceiptTx.description || viewReceiptTx.particulars || '-'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md">
+                  <Printer size={16}/> Print
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -37,6 +37,7 @@ interface DataContextType {
   leads: Lead[];
   referrals: Referral[];
   transactions: any[];
+  pendingReceipts: any[];
   blogs: BlogPost[];
   legalPages: BlogPost[];
   getLegalPage: (type: LegalPageType) => BlogPost | undefined;
@@ -108,6 +109,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return saved ? JSON.parse(saved) : LEADS;
   });
 
+  const [pendingReceipts, setPendingReceipts] = useState<any[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>(() => {
     const saved = localStorage.getItem("referrals");
     return saved ? JSON.parse(saved) : [];
@@ -387,9 +389,10 @@ const getLegalPage = useCallback((type: LegalPageType) => {
         fetch(`${BACKEND_URL}/api/investor/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
         fetch(`${BACKEND_URL}/api/doc/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
         fetch(`${BACKEND_URL}/api/referral/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
+        fetch(`${BACKEND_URL}/api/pending-receipt/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
       ]);
 
-      const [propRes, clientRes, txRes, investorRes, docRes, refRes] = fetches.map(r => r.status === 'fulfilled' ? r.value : null);
+      const [propRes, clientRes, txRes, investorRes, docRes, refRes, prRes] = fetches.map(r => r.status === 'fulfilled' ? r.value : null);
 
       console.log("☁️ Pull from cloud:", {
         props: Array.isArray(propRes) ? propRes.length : 'FAILED',
@@ -434,6 +437,7 @@ const getLegalPage = useCallback((type: LegalPageType) => {
         });
         results.push(`${refRes.length} referrals`);
       }
+      if (Array.isArray(prRes)) { setPendingReceipts(prRes); results.push(`${prRes.length} pending receipts`); }
     } catch (err) {
       console.log("⚠️ Pull from cloud failed:", err);
     } finally {
@@ -896,7 +900,7 @@ const updateLead = useCallback((id: string, updates: Partial<Lead>) => {
 
   return (
     <DataContext.Provider value={{
-      properties, agents, applications, clients, investors, docs, leads, referrals, transactions,
+      properties, agents, applications, clients, investors, docs, leads, referrals, transactions, pendingReceipts,
       blogs, addBlog, updateBlog, deleteBlog,
       addProperty, updateProperty, deleteProperty,
       addAgent, updateAgent, deleteAgent,

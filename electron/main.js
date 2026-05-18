@@ -72,6 +72,7 @@ const {
   saveStaff,
   deleteStaff,
   getPendingReceipts,
+  getPendingReceipts,
   savePendingReceipt,
   deletePendingReceipt,
   getGstEntries,
@@ -713,6 +714,7 @@ ipcMain.handle('resetLedger', () => {
         .filter(d => d.category !== 'REPORT' && d.type !== 'virtual')
         .map(({ data: _data, ...rest }) => rest);
       const referrals = getReferrals();
+      const pendingReceipts = getPendingReceipts();
 
       // Health check with retry for Render cold starts
       const waitForBackend = async (maxRetries = 10, delayMs = 5000) => {
@@ -778,6 +780,7 @@ ipcMain.handle('resetLedger', () => {
         pushChunked('/api/doc/bulk-upsert', docs, 2),
         push('/api/transaction/bulk-upsert', transactions),
         push('/api/referral/bulk-upsert', referrals),
+        push('/api/pending-receipt/bulk-upsert', pendingReceipts),
       ]);
 
       // Mark all pushed docs as synced locally
@@ -785,7 +788,7 @@ ipcMain.handle('resetLedger', () => {
         saveDoc({ ...doc, synced: true });
       }
 
-      return { success: true, message: `Sync successful — ${clients.length} clients, ${properties.length} properties, ${transactions.length} transactions, ${docs.length} docs, ${referrals.length} referrals pushed.` };
+      return { success: true, message: `Sync successful — ${clients.length} clients, ${properties.length} properties, ${transactions.length} transactions, ${docs.length} docs, ${referrals.length} referrals, ${pendingReceipts.length} pending receipts pushed.` };
     } catch (error) {
       console.error("Sync Error:", error);
       return { success: false, error: error.message };

@@ -54,7 +54,8 @@ export class LedgerEngine {
         categories,
         folders,
         settings,
-        staff
+        staff,
+        pendingReceipts
       ] = await Promise.all([
         this.db.getClients(),
         this.db.getTransactions(),
@@ -68,7 +69,8 @@ export class LedgerEngine {
         this.db.getCategories(),
         this.db.getFolders(),
         this.db.getSettings(),
-        this.db.getStaff()
+        this.db.getStaff(),
+        this.db.getPendingReceipts()
       ]);
 
       return {
@@ -85,6 +87,7 @@ export class LedgerEngine {
         categories,
         folders,
         staff,
+        pendingReceipts,
         settings: settings || {
           companyName: 'Ashray Group',
           taxId: 'TAX-12345678',
@@ -736,7 +739,12 @@ export class LedgerEngine {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data.staff),
-        }).then(async r => ({ name: 'Staff', ok: r.ok, status: r.status, body: !r.ok ? await r.text() : null }))
+        }).then(async r => ({ name: 'Staff', ok: r.ok, status: r.status, body: !r.ok ? await r.text() : null })),
+        fetch(`${await this.getBackendUrl()}/api/pending-receipt/bulk-upsert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data.pendingReceipts || []),
+        }).then(async r => ({ name: 'PendingReceipts', ok: r.ok, status: r.status, body: !r.ok ? await r.text() : null }))
       ]);
 
       const [
@@ -745,7 +753,8 @@ export class LedgerEngine {
        cloudTransactionsRes,
        cloudReferralsRes,
        cloudDocsRes,
-       cloudStaffRes
+       cloudStaffRes,
+       cloudPendingReceiptsRes
          ] = pushResults.map((r: any) =>
          r.status === 'fulfilled' ? r.value : { ok: false }
        );

@@ -108,6 +108,11 @@ class InvestorModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class PendingReceiptModel(Base):
+    __tablename__ = "pending_receipts"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class DocumentModel(Base):
     __tablename__ = "documents"
     id = Column(String, primary_key=True, index=True)
@@ -979,6 +984,30 @@ def delete_transaction(tx_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
+# --- PENDING RECEIPT ENDPOINTS ---
+@app.get("/api/pending-receipt/all")
+def get_all_pending_receipts(db: Session = Depends(get_db)):
+    items = db.query(PendingReceiptModel).all()
+    return [r.data for r in items if r.data is not None]
+
+@app.post("/api/pending-receipt/bulk-upsert")
+async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for data in data_list:
+            item_id = data.get("id")
+            if not item_id: continue
+            existing = db.query(PendingReceiptModel).filter(PendingReceiptModel.id == item_id).first()
+            if existing: existing.data = data
+            else: db.add(PendingReceiptModel(id=item_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Pending Receipt Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- UNIFIED LOGIN ENDPOINT ---
 @app.post("/api/auth/login")
 async def unified_login(request: Request, db: Session = Depends(get_db)):
@@ -1038,6 +1067,16 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                             "has_file": True, "fileData": None,
                         })
 
+                    # Attach pending receipts
+                    all_pr = db.query(PendingReceiptModel).all()
+                    c["pending_receipts"] = [
+                        r.data for r in all_pr
+                        if r.data and (
+                            (r.data.get("partyId") == client_id and r.data.get("partyType") == "client") or
+                            r.data.get("transactionId") in [tx.get("id") for tx in c.get("transactions", [])]
+                        )
+                    ]
+
                     logger.info(f"✅ CLIENT LOGIN SUCCESS: {client_id}")
 
                     return {
@@ -1087,6 +1126,16 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
                             "has_file": True, "fileData": None,
                         })
+
+                    # Attach pending receipts
+                    all_pr = db.query(PendingReceiptModel).all()
+                    i["pending_receipts"] = [
+                        r.data for r in all_pr
+                        if r.data and (
+                            (r.data.get("partyId") == investor_id and r.data.get("partyType") == "investor") or
+                            r.data.get("transactionId") in [tx.get("id") for tx in i.get("transactions", [])]
+                        )
+                    ]
 
                     logger.info(f"✅ INVESTOR LOGIN SUCCESS: {investor_id}")
 
