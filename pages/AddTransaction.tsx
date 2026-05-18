@@ -542,6 +542,7 @@ else {
     const { isSplit, splitPayments, ...restFormData } = formData as any;
     let lastRefId = '';
     let lastTransactionId = '';
+    const splitTransactionIds: string[] = [];
 
     // Helper functions for party names
     const getPartyName = (fd: any, pt: string) => {
@@ -640,6 +641,7 @@ else {
         await dbService.saveTransaction(newTx);
         lastRefId = refId;
         lastTransactionId = newTx.id;
+        splitTransactionIds.push(newTx.id);
         
         // Update Entity Balance for Split
         try {
@@ -808,7 +810,7 @@ else {
           if (p.amount && Number(p.amount) > 0) {
             receipts.push({
               id: `pending_${Date.now()}_${idx}`,
-              transactionId: `${Date.now()}-${idx}`,
+              transactionId: splitTransactionIds[idx] || `${Date.now()}-${idx}`,
               date: formData.date,
               amount: Number(p.amount),
               payeeName: getPartyName(formData, partyType),
@@ -822,7 +824,7 @@ else {
       } else {
         receipts.push({
           id: `pending_${Date.now()}`,
-          transactionId: Date.now().toString(),
+          transactionId: lastTransactionId,
           date: formData.date,
           amount: Number(formData.amount),
           payeeName: getPartyName(formData, partyType),
@@ -833,6 +835,7 @@ else {
         });
       }
       localStorage.setItem('pending_receipts', JSON.stringify(receipts));
+      Promise.all(receipts.map(r => dbService.savePendingReceipt(r).catch(err => console.error('Failed to save pending receipt:', err))));
     }
 
     // Handle Pending Cheques if method is CHEQUE and it's a DEBIT (payment we make)
@@ -840,7 +843,7 @@ else {
       const pendingCheques = JSON.parse(localStorage.getItem('pending_cheques') || '[]');
       pendingCheques.push({
         id: `chq_${Date.now()}`,
-        transactionId: Date.now().toString(),
+        transactionId: lastTransactionId,
         date: formData.date,
         amount: Number(formData.amount),
         payeeName: getPartyName(formData, partyType),
@@ -856,10 +859,10 @@ else {
          if (p.method === PaymentMethod.CHEQUE && formData.type === TransactionType.DEBIT) {
            pendingCheques.push({
              id: `chq_${Date.now()}_${idx}`,
-             transactionId: `${Date.now()}-${idx}`,
-             date: formData.date,
-             amount: Number(p.amount),
-             payeeName: getPartyName(formData, partyType),
+              transactionId: splitTransactionIds[idx] || `${Date.now()}-${idx}`,
+              date: formData.date,
+              amount: Number(p.amount),
+              payeeName: getPartyName(formData, partyType),
              partyId: getPartyId(formData, partyType),
              partyType: partyType,
              printed: false,

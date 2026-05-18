@@ -144,6 +144,7 @@ export class LedgerEngine {
         ...data.folders.map((f: any) => this.db.saveFolder(f)),
         ...data.categories.map((c: any) => this.db.updateCategory(c.id, c)),
         ...data.staff.map((s: any) => this.db.saveStaff(s)),
+        ...(data.pendingReceipts || []).map((r: any) => this.db.savePendingReceipt(r)),
         this.db.saveSettings(data.settings)
       ]);
 

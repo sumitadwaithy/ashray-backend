@@ -433,6 +433,7 @@ export const AddKissan: React.FC = () => {
 
         const existingReceipts = JSON.parse(localStorage.getItem('pending_receipts') || '[]');
         localStorage.setItem('pending_receipts', JSON.stringify([...existingReceipts, pendingReceipt]));
+        dbService.savePendingReceipt(pendingReceipt).catch(err => console.error('Failed to save pending receipt:', err));
         localStorage.removeItem('pending_receipts_remind_after');
 
         if (method === 'CHEQUE') {

@@ -413,6 +413,7 @@ export const AddInvestor: React.FC = () => {
     if (pendingReceiptsToAdd.length > 0) {
       const existingReceipts = JSON.parse(localStorage.getItem('pending_receipts') || '[]');
       localStorage.setItem('pending_receipts', JSON.stringify([...existingReceipts, ...pendingReceiptsToAdd]));
+      Promise.all(pendingReceiptsToAdd.map(r => dbService.savePendingReceipt(r).catch(err => console.error('Failed to save pending receipt:', err))));
       localStorage.removeItem('pending_receipts_remind_after');
     }
 

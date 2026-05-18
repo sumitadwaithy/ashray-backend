@@ -535,20 +535,23 @@ export const ReceiptGenerator: React.FC = () => {
 
                <div className="pt-4 flex flex-col gap-3">
                  <button 
-                   onClick={() => {
-                     setShowReceiptPrint(true);
-                     if (pendingId) {
-                       const stored = JSON.parse(localStorage.getItem('pending_receipts') || '[]');
-                       const updated = stored.map((r: any) => 
-                         r.id === pendingId ? { ...r, printed: true } : r
-                       );
-                       localStorage.setItem('pending_receipts', JSON.stringify(updated));
-                       setPendingReceipts(updated.filter((r: any) => !r.printed));
-                       setPendingId(null);
-                       // Stay on page
-                        console.log('Receipt printed')
-                     }
-                   }}
+                    onClick={() => {
+                      setShowReceiptPrint(true);
+                      if (pendingId) {
+                        const stored = JSON.parse(localStorage.getItem('pending_receipts') || '[]');
+                        const updated = stored.map((r: any) => 
+                          r.id === pendingId ? { ...r, printed: true } : r
+                        );
+                        localStorage.setItem('pending_receipts', JSON.stringify(updated));
+                        const printedReceipt = updated.find((r: any) => r.id === pendingId);
+                        if (printedReceipt) {
+                          dbService.savePendingReceipt(printedReceipt).catch(console.error);
+                        }
+                        setPendingReceipts(updated.filter((r: any) => !r.printed));
+                        setPendingId(null);
+                         console.log('Receipt printed')
+                      }
+                    }}
                    disabled={!formData.clientId || !formData.amount}
                    className="w-full bg-spiritual-maroon text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-red-900/10 active:scale-[0.98] transition-all"
                  >
@@ -579,6 +582,7 @@ export const ReceiptGenerator: React.FC = () => {
                             printed: false
                           };
                           localStorage.setItem('pending_receipts', JSON.stringify([...pendingReceipts, newPending]));
+                          dbService.savePendingReceipt(newPending).catch(console.error);
                         }
                       }
                       localStorage.removeItem('pending_receipts_remind_after');

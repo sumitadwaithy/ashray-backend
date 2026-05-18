@@ -508,6 +508,7 @@ const getPasswordStrength = (pwd: string): { score: number; label: string; color
           existingReceipts = [];
         }
         localStorage.setItem('pending_receipts', JSON.stringify([...existingReceipts, ...pendingReceiptsToAdd]));
+        Promise.all(pendingReceiptsToAdd.map(r => dbService.savePendingReceipt(r).catch(err => console.error('Failed to save pending receipt:', err))));
         localStorage.removeItem('pending_receipts_remind_after');
       }
 
