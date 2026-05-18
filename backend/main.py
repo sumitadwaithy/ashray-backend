@@ -789,44 +789,134 @@ async def download_document(filename: str, db: Session = Depends(get_db)):
                     headers={"Content-Disposition": f"attachment; filename={doc.original_name}"})
 
 @app.post("/api/doc/migrate-to-filesystem")
-async def migrate_docs_to_filesystem(db: Session = Depends(get_db)):
-    logger.info("🚀 Starting doc migration: base64 DB → filesystem storage")
-    migrated = 0; skipped = 0; failed = 0
+async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get_db)):
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    dry_run = body.get("dry_run", False) or request.query_params.get("dry_run", "false").lower() == "true"
+
+    logger.info(f"🚀 Doc migration {'(DRY RUN)' if dry_run else ''}: base64 DB → filesystem storage")
+    logger.info(f"   dry_run={dry_run}")
+
+    total = 0; migrated = 0; skipped = 0; failed = 0; already_migrated = 0; verified = 0
+    errors = []
+
     old_docs = db.query(DocModel).all()
-    for d in old_docs:
+    total = len(old_docs)
+    logger.info(f"   Found {total} docs in old `docs` table")
+
+    for idx, d in enumerate(old_docs, 1):
+        doc_id = d.id
         dd = d.data or {}
+
+        # --- Skip virtual docs ---
         if dd.get("type") == "virtual":
-            skipped += 1; continue
+            logger.info(f"   [{idx}/{total}] SKIP (virtual): {doc_id}")
+            skipped += 1
+            continue
+
+        # --- Check already migrated (has DocumentModel entry) ---
+        if db.query(DocumentModel).filter(DocumentModel.id == doc_id).first():
+            logger.info(f"   [{idx}/{total}] SKIP (already migrated): {doc_id}")
+            already_migrated += 1
+            if not dry_run:
+                db.delete(d)
+            continue
+
         fdb64 = dd.get("fileData")
         if not fdb64 or not isinstance(fdb64, str) or not fdb64.startswith("data:"):
-            skipped += 1; continue
+            logger.warning(f"   [{idx}/{total}] SKIP (no fileData): {doc_id}")
+            skipped += 1
+            continue
+
         try:
-            mime = fdb64.split(":")[1].split(";")[0]
-            raw = base64.b64decode(fdb64.split(",", 1)[1])
-            sr = await save_upload(raw, dd.get("name") or dd.get("file_name") or d.id, mime)
+            header, encoded = fdb64.split(",", 1)
+            mime = header.split(":")[1].split(";")[0]
+            raw = base64.b64decode(encoded)
+            original_name = dd.get("name") or dd.get("file_name") or doc_id
+
+            # --- Compute SHA256 of original content ---
+            content_hash = hashlib.sha256(raw).hexdigest()
+
+            if dry_run:
+                logger.info(f"   [{idx}/{total}] WOULD MIGRATE: {doc_id} | name={original_name} | "
+                            f"mime={mime} | size={len(raw)} bytes | sha256={content_hash[:16]}...")
+                migrated += 1
+                continue
+
+            # --- Save to filesystem ---
+            sr = await save_upload(raw, original_name, mime)
+
+            # --- Verify SHA256 integrity ---
+            if sr["sha256_hash"] != content_hash:
+                logger.error(f"   [{idx}/{total}] SHA256 MISMATCH: {doc_id} — expected {content_hash}, got {sr['sha256_hash']}")
+                failed += 1
+                errors.append({"id": doc_id, "error": "SHA256 mismatch after save"})
+                delete_file(sr["file_path"])
+                continue
+
+            # --- Auto-compress ---
             cr = await auto_compress(sr["file_path"], mime, sr["stored_filename"])
+
             now = datetime.utcnow().isoformat()
-            if not db.query(DocumentModel).filter(DocumentModel.id == d.id).first():
-                db.add(DocumentModel(
-                    id=d.id, original_name=dd.get("name") or dd.get("file_name") or d.id,
-                    stored_filename=sr["stored_filename"], file_path=sr["file_path"],
-                    optimized_path=cr.get("optimized_path"), thumbnail_path=cr.get("thumbnail_path"),
-                    mime_type=mime, size=sr["size"], compressed_size=cr.get("compressed_size"),
-                    sha256_hash=sr["sha256_hash"],
-                    compression_ratio=str(cr["compression_ratio"]) if cr.get("compression_ratio") else None,
-                    is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
-                    clientId=dd.get("clientId"), investorId=dd.get("investorId"),
-                    loanId=dd.get("loanId"), kissanId=dd.get("kissanId"), staffId=dd.get("staffId"),
-                    category=dd.get("category"), category_id=dd.get("category_id"), folder_id=dd.get("folder_id"),
-                    date=dd.get("date"), created_at=dd.get("created_at") or now, updated_at=now, is_virtual=0,
-                ))
-            db.delete(d); migrated += 1
+
+            # --- Create DocumentModel record ---
+            doc = DocumentModel(
+                id=doc_id, original_name=original_name,
+                stored_filename=sr["stored_filename"], file_path=sr["file_path"],
+                optimized_path=cr.get("optimized_path"), thumbnail_path=cr.get("thumbnail_path"),
+                mime_type=mime, size=sr["size"], compressed_size=cr.get("compressed_size"),
+                sha256_hash=sr["sha256_hash"],
+                compression_ratio=str(cr["compression_ratio"]) if cr.get("compression_ratio") else None,
+                is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
+                clientId=dd.get("clientId"), investorId=dd.get("investorId"),
+                loanId=dd.get("loanId"), kissanId=dd.get("kissanId"), staffId=dd.get("staffId"),
+                category=dd.get("category"), category_id=dd.get("category_id"), folder_id=dd.get("folder_id"),
+                date=dd.get("date"), created_at=dd.get("created_at") or now, updated_at=now, is_virtual=0,
+            )
+            db.add(doc)
+
+            # --- Verify integrity after write ---
+            saved = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+            if saved and saved.sha256_hash == content_hash:
+                verified += 1
+
+            # --- Remove old DocModel record ---
+            db.delete(d)
+            migrated += 1
+            logger.info(f"   [{idx}/{total}] MIGRATED: {doc_id} | {original_name} | {sr['size']} bytes"
+                        f"{' → compressed ' + str(cr.get('compressed_size')) + ' bytes' if cr.get('compressed_size') else ''}")
+
         except Exception as e:
-            logger.error(f"❌ Migration failed for doc {d.id}: {str(e)}")
+            logger.error(f"   [{idx}/{total}] FAILED: {doc_id} — {str(e)}")
             failed += 1
+            errors.append({"id": doc_id, "error": str(e)})
+
     db.commit()
-    logger.info(f"✅ Migration complete: {migrated} migrated, {skipped} skipped, {failed} failed")
-    return {"status": "success", "migrated": migrated, "skipped": skipped, "failed": failed}
+
+    # --- Summary ---
+    summary = {
+        "status": "success" if failed == 0 else "partial",
+        "dry_run": dry_run,
+        "total": total,
+        "migrated": migrated,
+        "skipped": skipped,
+        "already_migrated": already_migrated,
+        "failed": failed,
+        "verified": verified,
+        "errors": errors[:20],
+        "details": {
+            "virtual_docs_skipped": skipped,
+            "records_removed_from_old_table": migrated + already_migrated,
+            "records_created_in_new_table": migrated,
+            "sha256_verified": verified,
+        }
+    }
+
+    log_level = "✅" if failed == 0 else "⚠️"
+    logger.info(f"{log_level} Migration complete (dry_run={dry_run}): "
+                f"{migrated} migrated, {skipped} skipped, "
+                f"{already_migrated} already migrated, {failed} failed, {verified} verified")
+
+    return summary
 
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
