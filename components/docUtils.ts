@@ -16,14 +16,14 @@ export const getDocUrl = (doc: Doc) => {
     return prefix + doc.fileData;
   }
 
-  // 3. If it's a "real" document ID, use the serving API
+  // 3. If it's a "real" document ID, use the FastAPI content serving endpoint
   if (doc.id && String(doc.id).startsWith('doc_')) {
-    return `/api/doc/serve/${encodeURIComponent(String(doc.id))}`;
+    return `/api/files/${encodeURIComponent(String(doc.id))}/content`;
   }
 
   // 4. Ultimate fallback to search by name
   if (doc.name) {
-    return `/api/doc/serve/${encodeURIComponent(String(doc.id || doc.name))}`;
+    return `/api/files/${encodeURIComponent(String(doc.id || doc.name))}/content`;
   }
 
   return '';

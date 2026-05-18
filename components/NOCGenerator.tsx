@@ -94,20 +94,39 @@ export const NOCGenerator: React.FC<NOCGeneratorProps> = ({ isOpen, onClose }) =
   };
 
   const getAgreementData = () => {
+    // Build manager object from available data (staff or settings)
+    const selectedManager = selectedStaff || selectedClient || null;
+    const managerObj = {
+      managerName: selectedManager?.managerName || settings?.managers?.[0]?.name || '',
+      managerPosition: selectedManager?.managerPosition || settings?.managers?.[0]?.role || settings?.managerPosition || '',
+      managerAddress: selectedManager?.managerAddress || settings?.managers?.[0]?.address || settings?.managerAddress || '',
+      managerPAN: selectedManager?.managerPAN || settings?.managers?.[0]?.pan || settings?.managerPAN || '',
+      managerAadhaar: selectedManager?.managerAadhaar || settings?.managers?.[0]?.aadhaar || settings?.managerAadhaar || '',
+      managerPhone: selectedManager?.managerPhone || settings?.managers?.[0]?.phone || settings?.managerPhone || '',
+      managerCountryCode: selectedManager?.managerCountryCode || settings?.managers?.[0]?.countryCode || settings?.managerCountryCode || '',
+    };
+    // Normalize company to use AppSettings mapped to CompanyData field names
+    const companyData = {
+      ...settings,
+      companyPan: settings?.panNumber || '',
+    };
     const baseData = {
       nocType,
       formData,
       settings,
-      company: settings
+      company: companyData,
+      manager: managerObj,
+      nocDate: formData?.date || '',
     };
 
     if (nocType === 'POST_JOB') {
       return {
         ...baseData,
         staff: selectedStaff,
-        client: selectedStaff, // For fullName helper
+        employee: selectedStaff,
+        client: selectedStaff,
         name: selectedStaff?.name,
-        title: selectedStaff?.title || 'Mr./Ms.'
+        title: selectedStaff?.title || 'Mr./Ms.',
       };
     }
 

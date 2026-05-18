@@ -415,11 +415,13 @@ const calculateAge = (dob: string): string => {
               pincode: formData.pincode,
               employeeId: staffId,
               staffId: staffId,
-              folderSerial: formData.folderSerial
+              folderSerial: formData.folderSerial,
+              qualification: formData.qualification || ''
             },
             employment: {
               joiningDate: formData.joiningDate,
               role: formData.role,
+              designation: formData.role,
               department: formData.categoryName,
               reportingTo: formData.managerName,
               placeOfPosting: formData.placeOfPosting || formData.officeLocality,

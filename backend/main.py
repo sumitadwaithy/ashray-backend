@@ -336,6 +336,37 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             created_at=now, updated_at=now, mime_type=data.get("mime_type"), is_virtual=0,
         ))
         db.commit()
+    # Handle fileData base64: save to disk if present
+    file_data_raw = data.get("fileData")
+    if file_data_raw and isinstance(file_data_raw, str) and len(file_data_raw) > 100:
+        try:
+            import base64
+            if file_data_raw.startswith("data:"):
+                mime_from_data = file_data_raw.split(";")[0].split(":")[1] if ";" in file_data_raw else "application/octet-stream"
+                raw_b64 = file_data_raw.split(",", 1)[1] if "," in file_data_raw else file_data_raw
+            else:
+                mime_from_data = data.get("mime_type") or "application/octet-stream"
+                raw_b64 = file_data_raw
+            file_bytes = base64.b64decode(raw_b64)
+            original_name = data.get("name") or data.get("file_name") or doc_id
+            sr = await save_upload(file_bytes, original_name, mime_from_data)
+            cr = await auto_compress(sr["file_path"], mime_from_data, sr["stored_filename"])
+            doc_rec = existing or db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+            if doc_rec:
+                doc_rec.stored_filename = sr["stored_filename"]
+                doc_rec.file_path = sr["file_path"]
+                doc_rec.optimized_path = cr.get("optimized_path")
+                doc_rec.thumbnail_path = cr.get("thumbnail_path")
+                doc_rec.mime_type = doc_rec.mime_type or mime_from_data
+                doc_rec.size = sr["size"]
+                doc_rec.compressed_size = cr.get("compressed_size")
+                doc_rec.sha256_hash = sr["sha256_hash"]
+                doc_rec.compression_ratio = str(cr["compression_ratio"]) if cr.get("compression_ratio") else None
+                doc_rec.is_compressed = 1 if cr["is_compressed"] else 0
+                doc_rec.preview_ready = 1 if cr["preview_ready"] else 0
+                db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save fileData for doc {doc_id}: {e}")
     return {
         "id": doc_id, "name": data.get("name") or doc_id, "file_name": data.get("file_name") or doc_id,
         "clientId": data.get("clientId"), "fileData": None, "category": data.get("category"),

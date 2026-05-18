@@ -429,6 +429,79 @@ interface TemplateProps {
       flattened.propertyPlotNo = flattened.selectedProperty.plotNo || flattened.selectedProperty.id;
     }
 
+    // Normalize company data field names (AppSettings vs CompanyData mismatch)
+    if (flattened.company) {
+      if (flattened.company.panNumber && !flattened.company.companyPan) {
+        flattened.company.companyPan = flattened.company.panNumber;
+      }
+    }
+
+    // Staff to employee mapping for PostJobNOC template
+    if (flattened.staff && !flattened.employee) {
+      flattened.employee = flattened.staff;
+    }
+    // Build employment object for PostJobNOC if missing
+    if (flattened.staff && !flattened.employment) {
+      flattened.employment = {
+        joiningDate: flattened.staff.joinDate || flattened.joinDate || '',
+        relievingDate: flattened.formData?.relievingDate || '',
+        lastWorkingDay: flattened.formData?.relievingDate || '',
+        department: flattened.staff.role || '',
+        designation: flattened.staff.role || '',
+        reportingTo: flattened.staff.managerName || '',
+        placeOfPosting: flattened.staff.officeLocality || '',
+        grossMonthlySalary: flattened.staff.salary || '',
+        conductRemark: flattened.formData?.conductRemark || 'GOOD',
+        performanceRemark: flattened.formData?.performanceRemark || 'GOOD',
+        nocPurpose: flattened.formData?.nocPurpose || '',
+        nocIssuedTo: flattened.staff?.name || '',
+        reasonForLeaving: flattened.formData?.reasonForLeaving || '',
+        nocNumber: flattened.formData?.nocNumber || '',
+        nocDate: flattened.formData?.date || '',
+      };
+    }
+
+    // Normalize nocDate for all NOC types
+    if (flattened.formData?.date && !flattened.nocDate) {
+      flattened.nocDate = flattened.formData.date;
+    }
+    // Map loan-specific fields
+    if (flattened.loan) {
+      flattened.loanAmount = flattened.loan.principalAmount || flattened.loanAmount;
+      flattened.loanDuration = flattened.loan.durationMonths ? `${flattened.loan.durationMonths} Months` : flattened.loanDuration;
+      flattened.loanDate = flattened.loan.startDate || flattened.loanDate;
+      flattened.loanPurpose = flattened.loan.purpose || flattened.loanPurpose;
+      flattened.interestRate = flattened.loan.interestRate != null ? String(flattened.loan.interestRate) : flattened.interestRate;
+      flattened.interestType = flattened.loan.interestType || flattened.interestType;
+      flattened.repaymentMode = flattened.loan.repaymentMode || flattened.repaymentMode;
+      flattened.monthlyEMI = flattened.loan.monthlyEMI || flattened.monthlyEMI;
+      flattened.collateral = flattened.loan.collateral || flattened.collateral;
+      flattened.collateralType = flattened.loan.collateralType || flattened.collateralType;
+      flattened.collateralValue = flattened.loan.collateralValue || flattened.collateralValue;
+      flattened.collateralDetails = flattened.loan.collateralDetails || flattened.collateralDetails;
+      // Ensure nested client fields exist from loan data
+      if (!flattened.client) {
+        flattened.client = {
+          name: flattened.loan.borrowerName || flattened.clientName,
+          title: flattened.title || 'Mr.',
+          age: flattened.loan.age || '',
+          occupation: flattened.loan.occupation || '',
+          phone: flattened.loan.phone || '',
+          email: flattened.loan.email || '',
+          aadhaar: flattened.loan.aadhaar || '',
+          pan: flattened.loan.pan || '',
+          address: flattened.loan.address || '',
+          fatherHusbandName: flattened.loan.fatherHusbandName || '',
+          folderSerial: flattened.loan.folderSerial || '',
+          clientId: flattened.loan.id || '',
+        };
+      }
+    }
+    // Map guarantors from loan object
+    if (flattened.loan?.guarantors && !flattened.guarantors) {
+      flattened.guarantors = flattened.loan.guarantors;
+    }
+
     return flattened;
   };
 

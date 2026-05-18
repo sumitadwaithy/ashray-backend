@@ -510,6 +510,7 @@ export const AddInvestor: React.FC = () => {
             name: formData.name,
             age: formData.age,
             gender: formData.gender,
+            fatherName: formData.fatherName || '',
             occupation: formData.occupation,
             phone: `${formData.countryCode}${formData.phone}`,
             email: formData.email,
@@ -519,6 +520,8 @@ export const AddInvestor: React.FC = () => {
             district: formData.district,
             state: formData.state,
             pincode: formData.pincode,
+            folderSerial: formData.folderSerial || '',
+            clientId: investorId,
             nominee1Name: formData.nominees[0]?.name || '',
             nominee1Age: formData.nominees[0]?.age || '',
             nominee1Occupation: formData.nominees[0]?.relation || '',
@@ -527,7 +530,6 @@ export const AddInvestor: React.FC = () => {
             nominee2Age: formData.nominees[1]?.age || '',
             nominee2Occupation: formData.nominees[1]?.relation || '',
             nominee2Aadhaar: formData.nominees[1]?.aadhaar || '',
-            clientId: investorId
           },
           property: {
             projectName: selectedProperty?.title || selectedKissan?.landName || '',
@@ -538,6 +540,8 @@ export const AddInvestor: React.FC = () => {
             tokenAmount: totalTokenAmount || '',
             bookingDate: formData.bookingDate || '',
             paymentMode: formData.splitPayments[0]?.mode || 'Split',
+            interestRate: formData.interestRate || '',
+            emiDuration: formData.emiDuration || '',
           },
           company: {
             companyName: companySettings?.companyName || '',
