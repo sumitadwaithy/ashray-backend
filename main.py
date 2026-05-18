@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from datetime import datetime
 import os
 import logging
+import asyncio
+import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +54,12 @@ elif DATABASE_URL.startswith("postgres://"):
 try:
     # For SQLite, we need check_same_thread=False
     connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+        pool_recycle=300
+    )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
 except Exception as e:
@@ -115,6 +122,29 @@ async def health_check(db: Session = Depends(get_db)):
         return {"status": "ok", "database": "connected"}
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
+
+# --- KEEP-ALIVE BACKGROUND TASK (prevents Render free-tier spin-down) ---
+KEEP_ALIVE_URL = "https://ashray-backend-2nt7.onrender.com/api/health"
+
+async def keep_alive():
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.get(KEEP_ALIVE_URL)
+                logger.info(
+                    f"✅ Self-ping success | "
+                    f"status={response.status_code}"
+                )
+        except Exception as e:
+            logger.error(
+                f"❌ Self-ping failed: {str(e)}"
+            )
+        await asyncio.sleep(300)
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 Starting keep-alive background task...")
+    asyncio.create_task(keep_alive())
 
 # --- HELPER FOR GENERIC CRUD ---
 async def generic_upsert(request: Request, model, db: Session):
