@@ -2,7 +2,7 @@ import base64
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import Column, String, create_engine, DateTime, Integer, JSON
+from sqlalchemy import Column, String, create_engine, DateTime, Integer, JSON, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -111,7 +111,7 @@ def get_db():
 @app.get("/api/health")
 async def health_check(db: Session = Depends(get_db)):
     try:
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         return {"status": "ok", "database": "connected"}
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
