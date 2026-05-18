@@ -15,11 +15,11 @@ import uuid
 import hashlib
 from pathlib import Path
 
-from storage import (
+from .storage import (
     save_upload, save_optimized, save_thumbnail, read_file,
     delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
 )
-from compression import auto_compress
+from .media_compression import auto_compress
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
