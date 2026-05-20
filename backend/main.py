@@ -699,35 +699,47 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 try:
                     mime = fdb64.split(":")[1].split(";")[0]
                     raw = base64.b64decode(fdb64.split(",", 1)[1])
-                except Exception:
+                    logger.info(f"📎 Decoded fileData for {doc_id}: {len(raw)} bytes, mime={mime}")
+                except Exception as ex:
+                    logger.error(f"❌ Base64 decode failed for {doc_id}: {ex}")
                     raw = b""
                     mime = "application/octet-stream"
-                sr = await save_upload(raw, data.get("name") or data.get("file_name") or doc_id, mime)
-                cr = await auto_compress(sr["file_path"], mime, sr["stored_filename"])
+                
+                sr = None
+                cr = {}
+                if len(raw) > 0:
+                    sr = await save_upload(raw, data.get("name") or data.get("file_name") or doc_id, mime)
+                    cr = await auto_compress(sr["file_path"], mime, sr["stored_filename"])
+                    logger.info(f"✅ Saved file for {doc_id}: {sr['size']} bytes")
+                else:
+                    logger.warning(f"⚠️ Empty file content for {doc_id}, saving metadata only")
+                
                 now = datetime.utcnow().isoformat()
                 existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
                 if existing:
-                    for k, v in {"original_name": data.get("name") or existing.original_name,
-                        "stored_filename": sr["stored_filename"], "file_path": sr["file_path"],
-                        "optimized_path": cr.get("optimized_path"), "thumbnail_path": cr.get("thumbnail_path"),
-                        "mime_type": mime, "size": sr["size"],
-                        "compressed_size": cr.get("compressed_size"), "sha256_hash": sr["sha256_hash"],
-                        "is_compressed": 1 if cr["is_compressed"] else 0,
-                        "preview_ready": 1 if cr["preview_ready"] else 0,
-                        "compression_ratio": str(cr["compression_ratio"]) if cr.get("compression_ratio") else None}.items():
-                        setattr(existing, k, v)
+                    if sr:
+                        for k, v in {"original_name": data.get("name") or existing.original_name,
+                            "stored_filename": sr["stored_filename"], "file_path": sr["file_path"],
+                            "optimized_path": cr.get("optimized_path"), "thumbnail_path": cr.get("thumbnail_path"),
+                            "mime_type": mime, "size": sr["size"],
+                            "compressed_size": cr.get("compressed_size"), "sha256_hash": sr["sha256_hash"],
+                            "is_compressed": 1 if cr["is_compressed"] else 0,
+                            "preview_ready": 1 if cr["preview_ready"] else 0,
+                            "compression_ratio": str(cr["compression_ratio"]) if cr.get("compression_ratio") else None}.items():
+                            setattr(existing, k, v)
                     for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
                     db.add(DocumentModel(
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
-                        stored_filename=sr["stored_filename"], file_path=sr["file_path"],
+                        stored_filename=sr["stored_filename"] if sr else None,
+                        file_path=sr["file_path"] if sr else None,
                         optimized_path=cr.get("optimized_path"), thumbnail_path=cr.get("thumbnail_path"),
-                        mime_type=mime, size=sr["size"], compressed_size=cr.get("compressed_size"),
-                        sha256_hash=sr["sha256_hash"],
+                        mime_type=mime, size=sr["size"] if sr else 0, compressed_size=cr.get("compressed_size"),
+                        sha256_hash=sr["sha256_hash"] if sr else None,
                         compression_ratio=str(cr["compression_ratio"]) if cr.get("compression_ratio") else None,
-                        is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
+                        is_compressed=1 if cr.get("is_compressed") else 0, preview_ready=1 if cr.get("preview_ready") else 0,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
@@ -829,20 +841,36 @@ async def download_document(filename: str, db: Session = Depends(get_db)):
 @app.get("/api/doc/serve/{doc_id}")
 async def serve_document(doc_id: str, db: Session = Depends(get_db)):
     logger.info(f"📄 Serving document: {doc_id}")
+    
+    # Try new DocumentModel first
     doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
-    if doc and (doc.optimized_path or doc.file_path):
+    if doc:
         fp = doc.optimized_path or doc.file_path
-        content = await read_file(fp)
-        if content is not None:
-            return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
+        if fp:
+            content = await read_file(fp)
+            if content is not None:
+                logger.info(f"✅ Served from filesystem: {fp}")
+                return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
+            logger.warning(f"⚠️ File not found on disk: {fp}")
+    
+    # Fallback to old DocModel with base64 fileData
     old = db.query(DocModel).filter(DocModel.id == doc_id).first()
     if old and old.data:
         fd = old.data.get("fileData")
         if fd and isinstance(fd, str) and fd.startswith("data:"):
-            h, e = fd.split(",", 1)
-            dec = base64.b64decode(e)
-            return Response(content=dec, media_type=h.split(":")[1].split(";")[0])
-    raise HTTPException(status_code=404, detail="File not found")
+            try:
+                h, e = fd.split(",", 1)
+                dec = base64.b64decode(e)
+                logger.info(f"✅ Served from base64 fallback: {doc_id}")
+                return Response(content=dec, media_type=h.split(":")[1].split(";")[0])
+            except Exception as ex:
+                logger.error(f"❌ Base64 decode failed: {ex}")
+    
+    # Last resort: check if doc exists but file is missing
+    if doc:
+        logger.error(f"❌ Document {doc_id} exists but file not found. original_name={doc.original_name}, file_path={doc.file_path}")
+    
+    raise HTTPException(status_code=404, detail=f"File not found for doc_id: {doc_id}")
 
 @app.post("/api/doc/migrate-to-filesystem")
 async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get_db)):
