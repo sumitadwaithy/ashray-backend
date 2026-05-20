@@ -826,6 +826,24 @@ async def download_document(filename: str, db: Session = Depends(get_db)):
     return Response(content=content, media_type=doc.mime_type or "application/octet-stream",
                     headers={"Content-Disposition": f"attachment; filename={doc.original_name}"})
 
+@app.get("/api/doc/serve/{doc_id}")
+async def serve_document(doc_id: str, db: Session = Depends(get_db)):
+    logger.info(f"📄 Serving document: {doc_id}")
+    doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+    if doc and (doc.optimized_path or doc.file_path):
+        fp = doc.optimized_path or doc.file_path
+        content = await read_file(fp)
+        if content is not None:
+            return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
+    old = db.query(DocModel).filter(DocModel.id == doc_id).first()
+    if old and old.data:
+        fd = old.data.get("fileData")
+        if fd and isinstance(fd, str) and fd.startswith("data:"):
+            h, e = fd.split(",", 1)
+            dec = base64.b64decode(e)
+            return Response(content=dec, media_type=h.split(":")[1].split(";")[0])
+    raise HTTPException(status_code=404, detail="File not found")
+
 @app.post("/api/doc/migrate-to-filesystem")
 async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get_db)):
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
