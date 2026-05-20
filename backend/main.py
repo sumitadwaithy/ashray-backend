@@ -336,7 +336,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     now = datetime.utcnow().isoformat()
     if existing:
-        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
+        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = now
@@ -379,6 +379,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
                 doc_rec.optimized_path = cr.get("optimized_path")
                 doc_rec.thumbnail_path = cr.get("thumbnail_path")
                 doc_rec.mime_type = doc_rec.mime_type or mime_from_data
+                doc_rec.transactionId = data.get("transactionId") or doc_rec.transactionId
                 doc_rec.size = sr["size"]
                 doc_rec.compressed_size = cr.get("compressed_size")
                 doc_rec.sha256_hash = sr["sha256_hash"]
@@ -748,7 +749,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                             "preview_ready": 1 if cr["preview_ready"] else 0,
                             "compression_ratio": str(cr["compression_ratio"]) if cr.get("compression_ratio") else None}.items():
                             setattr(existing, k, v)
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
