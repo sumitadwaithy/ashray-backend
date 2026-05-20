@@ -191,64 +191,14 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
 
-# --- SETTINGS ENDPOINTS ---
+# --- SETTINGS ENDPOINT ---
 @app.get("/api/settings")
-async def get_settings(db: Session = Depends(get_db)):
-    settings = db.query(SettingsModel).filter(SettingsModel.id == "default").first()
-    if settings:
-        return settings.data
-
-    defaults = {
+async def get_settings():
+    return {
         "companyName": "Ashray Group",
         "companyGST": "27ABCDE1234F1Z5",
-        "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "district": "Nagpur", "state": "Maharashtra", "pinCode": "", "id": "1", "name": "Registered Office"}],
-        "companyLogo": None,
-        "companyWatermark": None,
-        "companyEmail": "",
-        "companyWebsite": "",
-        "licenseRegistrationNumber": "",
-        "panNumber": "",
-        "entityType": "",
-        "urcNumber": "",
-        "tanNumber": "",
-        "gstNumbers": [],
-        "autoSync": False,
-        "managerPosition": "",
-        "managerAddress": "",
-        "managerPAN": "",
-        "managerAadhaar": "",
-        "managerPhone": "",
-        "managerCountryCode": "",
-        "managers": [],
-        "whatsappNumber": "",
-        "enableAutoSend": False,
-        "paymentMessageTemplate": "",
-        "adminId": "",
-        "adminPassword": "",
-        "registeredPhone": "",
-        "backendUrl": "",
-        "backupCycleStartYear": None,
-        "lastBackupDate": None,
-        "backupReminderSnoozeUntil": None,
-        "financialYearStart": None,
-        "financialYearEnd": None,
+        "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "state": "Maharashtra"}]
     }
-    return defaults
-
-@app.post("/api/settings")
-async def save_settings(payload: dict, db: Session = Depends(get_db)):
-    existing = db.query(SettingsModel).filter(SettingsModel.id == "default").first()
-    if existing:
-        existing.data = payload
-        db.commit()
-        db.refresh(existing)
-        return {"success": True, "message": "Settings updated"}
-    else:
-        new_settings = SettingsModel(id="default", data=payload)
-        db.add(new_settings)
-        db.commit()
-        db.refresh(new_settings)
-        return {"success": True, "message": "Settings created"}
 
 # --- KEEP-ALIVE BACKGROUND TASK (prevents Render free-tier spin-down) ---
 KEEP_ALIVE_URL = "https://ashray-backend-2nt7.onrender.com/api/health"
