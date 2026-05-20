@@ -148,8 +148,13 @@ class DocumentModel(Base):
 try:
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Database tables initialized.")
+    # Add missing columns for existing tables (safe migration)
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS \"transactionId\" VARCHAR"))
+        conn.commit()
+        logger.info("✅ Migration: added transactionId column to documents table")
 except Exception as e:
-    logger.error(f"❌ Failed to create tables: {str(e)}")
+    logger.error(f"❌ Failed to initialize tables: {str(e)}")
 
 # --- DATABASE ENGINE ---
 def get_db():
