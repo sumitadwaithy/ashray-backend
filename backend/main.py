@@ -150,9 +150,14 @@ try:
     logger.info("✅ Database tables initialized.")
     # Add missing columns for existing tables (safe migration)
     with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS \"transactionId\" VARCHAR"))
-        conn.commit()
-        logger.info("✅ Migration: added transactionId column to documents table")
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(text("ALTER TABLE documents ADD COLUMN \"transactionId\" VARCHAR"))
+            conn.commit()
+            logger.info("✅ Migration: added transactionId column to documents table (SQLite)")
+        else:
+            conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS \"transactionId\" VARCHAR"))
+            conn.commit()
+            logger.info("✅ Migration: added transactionId column to documents table (PostgreSQL)")
 except Exception as e:
     logger.error(f"❌ Failed to initialize tables: {str(e)}")
 
@@ -172,6 +177,15 @@ async def health_check(db: Session = Depends(get_db)):
         return {"status": "ok", "database": "connected"}
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
+
+# --- SETTINGS ENDPOINT ---
+@app.get("/api/settings")
+async def get_settings():
+    return {
+        "companyName": "Ashray Group",
+        "companyGST": "27ABCDE1234F1Z5",
+        "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "state": "Maharashtra"}]
+    }
 
 # --- KEEP-ALIVE BACKGROUND TASK (prevents Render free-tier spin-down) ---
 KEEP_ALIVE_URL = "https://ashray-backend-2nt7.onrender.com/api/health"
