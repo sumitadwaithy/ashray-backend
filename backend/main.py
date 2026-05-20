@@ -133,6 +133,7 @@ class DocumentModel(Base):
     loanId = Column(String, nullable=True, index=True)
     kissanId = Column(String, nullable=True, index=True)
     staffId = Column(String, nullable=True, index=True)
+    transactionId = Column(String, nullable=True, index=True)
     category_id = Column(String, nullable=True)
     folder_id = Column(String, nullable=True)
     category = Column(String, nullable=True)
@@ -270,6 +271,7 @@ def get_all_docs(db: Session = Depends(get_db)):
             "loanId": d.loanId,
             "kissanId": d.kissanId,
             "staffId": d.staffId,
+            "transactionId": d.transactionId,
             "category": d.category,
             "category_id": d.category_id,
             "folder_id": d.folder_id,
@@ -742,6 +744,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         is_compressed=1 if cr.get("is_compressed") else 0, preview_ready=1 if cr.get("preview_ready") else 0,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
+                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now, is_virtual=0,
                     ))
@@ -751,7 +754,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 now = datetime.utcnow().isoformat()
                 existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
                 if existing:
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name", "transactionId"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
@@ -759,6 +762,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
+                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now,
                         mime_type=data.get("mime_type"), is_virtual=0,
