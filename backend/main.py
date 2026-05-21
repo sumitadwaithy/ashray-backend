@@ -194,14 +194,35 @@ async def health_check(db: Session = Depends(get_db)):
 # --- SETTINGS ENDPOINT ---
 DEFAULT_SETTINGS = {
     "companyName": "Ashray Group",
-    "companyGST": "27ABCDE1234F1Z5",
-    "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "state": "Maharashtra"}],
+    "entityType": "",
+    "companyPan": "",
+    "companyEmail": "",
+    "companyWebsite": "",
+    "licenseRegistrationNumber": "",
+    "urcNumber": "",
+    "managerPosition": "",
+    "managerAddress": "",
+    "managerPAN": "",
+    "managerAadhaar": "",
+    "managerPhone": "",
+    "managerCountryCode": "",
+    "companyAddress": "",
+    "companyLocality": "",
+    "companyDistrict": "",
+    "companyState": "",
+    "companyPincode": "",
+    "companyLogo": "",
+    "companyWatermark": "",
+    "companyAddresses": [],
+    "managers": [],
 }
 
 @app.get("/api/settings")
 async def get_settings(db: Session = Depends(get_db)):
     row = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
-    return row.data if row and row.data is not None else DEFAULT_SETTINGS
+    stored_data = row.data if row and row.data is not None else {}
+    # Merge stored data with defaults so missing fields get fallback values
+    return {**DEFAULT_SETTINGS, **stored_data}
 
 @app.post("/api/settings")
 async def upsert_settings(request: Request, db: Session = Depends(get_db)):
