@@ -192,13 +192,31 @@ async def health_check(db: Session = Depends(get_db)):
         return {"status": "degraded", "database": str(e)}
 
 # --- SETTINGS ENDPOINT ---
+DEFAULT_SETTINGS = {
+    "companyName": "Ashray Group",
+    "companyGST": "27ABCDE1234F1Z5",
+    "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "state": "Maharashtra"}],
+}
+
 @app.get("/api/settings")
-async def get_settings():
-    return {
-        "companyName": "Ashray Group",
-        "companyGST": "27ABCDE1234F1Z5",
-        "companyAddresses": [{"addressLine": "Corporate Office", "locality": "Nagpur", "state": "Maharashtra"}]
-    }
+async def get_settings(db: Session = Depends(get_db)):
+    row = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
+    return row.data if row and row.data is not None else DEFAULT_SETTINGS
+
+@app.post("/api/settings")
+async def upsert_settings(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Expected a settings object")
+
+    existing = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
+    if existing:
+        existing.data = data
+    else:
+        db.add(SettingsModel(id="main", data=data))
+
+    db.commit()
+    return {"status": "success"}
 
 # --- KEEP-ALIVE BACKGROUND TASK (prevents Render free-tier spin-down) ---
 KEEP_ALIVE_URL = "https://ashray-backend-2nt7.onrender.com/api/health"
