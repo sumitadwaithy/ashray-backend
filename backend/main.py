@@ -1319,6 +1319,17 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         )
                     ]
 
+                    # Attach market updates for this investor's property
+                    prop_id = i.get("investedPropertyId")
+                    if prop_id:
+                        all_mu = db.query(PropertyMarketUpdateModel).all()
+                        i["marketUpdates"] = [
+                            m.data for m in all_mu
+                            if m.data and m.data.get("propertyId") == prop_id
+                        ]
+                    else:
+                        i["marketUpdates"] = []
+
                     logger.info(f"✅ INVESTOR LOGIN SUCCESS: {investor_id}")
 
                     return {
