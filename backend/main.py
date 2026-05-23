@@ -118,6 +118,11 @@ class SettingsModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class PropertyMarketUpdateModel(Base):
+    __tablename__ = "property_market_updates"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class SyncLogModel(Base):
     __tablename__ = "sync_logs"
     id = Column(String, primary_key=True, index=True)
@@ -1159,6 +1164,30 @@ async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(g
         return {"status": "success", "count": len(data_list)}
     except Exception as e:
         logger.error(f"Pending Receipt Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- MARKET UPDATES ENDPOINTS ---
+@app.get("/api/market-updates/all")
+def get_all_market_updates(db: Session = Depends(get_db)):
+    items = db.query(PropertyMarketUpdateModel).all()
+    return [m.data for m in items if m.data is not None]
+
+@app.post("/api/market-updates/bulk-upsert")
+async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for data in data_list:
+            item_id = data.get("id")
+            if not item_id: continue
+            existing = db.query(PropertyMarketUpdateModel).filter(PropertyMarketUpdateModel.id == item_id).first()
+            if existing: existing.data = data
+            else: db.add(PropertyMarketUpdateModel(id=item_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Market Updates Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- UNIFIED LOGIN ENDPOINT ---
