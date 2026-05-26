@@ -299,6 +299,18 @@ async def generic_upsert(request: Request, model, db: Session):
     db.commit()
     return {"status": "success", "id": item_id}
 
+def _should_update(existing_data, incoming_data):
+    """Timestamp-based conflict resolution. Returns True if incoming should overwrite existing."""
+    if existing_data is None:
+        return True
+    existing_ts = existing_data.get("updatedAt", "") if isinstance(existing_data, dict) else ""
+    incoming_ts = incoming_data.get("updatedAt", "") if isinstance(incoming_data, dict) else ""
+    # If no timestamps, overwrite (backward compat)
+    if not existing_ts or not incoming_ts:
+        return True
+    return incoming_ts >= existing_ts
+
+
 async def generic_bulk_upsert(request: Request, model, db: Session):
     try:
         data_list = await request.json()
@@ -310,7 +322,8 @@ async def generic_bulk_upsert(request: Request, model, db: Session):
             if not item_id: continue
             existing = db.query(model).filter(model.id == item_id).first()
             if existing:
-                existing.data = data
+                if _should_update(existing.data, data):
+                    existing.data = data
             else:
                 db.add(model(id=item_id, data=data))
         db.commit()
@@ -626,7 +639,8 @@ async def bulk_upsert_properties(request: Request, db: Session = Depends(get_db)
             if not prop_id: continue
             existing = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
             if existing:
-                existing.data = data
+                if _should_update(existing.data, data):
+                    existing.data = data
             else:
                 db.add(PropertyModel(id=prop_id, data=data))
         db.commit()
@@ -686,7 +700,8 @@ async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
             if not client_id: continue
             existing = db.query(ClientModel).filter(ClientModel.id == client_id).first()
             if existing:
-                existing.data = data
+                if _should_update(existing.data, data):
+                    existing.data = data
             else:
                 db.add(ClientModel(id=client_id, data=data))
         db.commit()
@@ -694,6 +709,16 @@ async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/client/delete/{item_id}")
+def delete_client(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(ClientModel).filter(ClientModel.id == item_id).first()
+    if item:
+        db.execute(text("UPDATE transactions SET client_id = NULL, client_name = NULL WHERE client_id = :cid"), {"cid": item_id})
+        db.execute(text("UPDATE docs SET clientId = NULL WHERE clientId = :cid"), {"cid": item_id})
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
 
 # --- REFERRAL ENDPOINTS ---
 @app.post("/api/referral/upsert")
@@ -1168,7 +1193,9 @@ async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(g
             item_id = data.get("id")
             if not item_id: continue
             existing = db.query(PendingReceiptModel).filter(PendingReceiptModel.id == item_id).first()
-            if existing: existing.data = data
+            if existing:
+                if _should_update(existing.data, data):
+                    existing.data = data
             else: db.add(PendingReceiptModel(id=item_id, data=data))
         db.commit()
         return {"status": "success", "count": len(data_list)}
