@@ -123,6 +123,16 @@ class PropertyMarketUpdateModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class StaffModel(Base):
+    __tablename__ = "staff"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class AgentApplicationModel(Base):
+    __tablename__ = "agent_applications"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class SyncLogModel(Base):
     __tablename__ = "sync_logs"
     id = Column(String, primary_key=True, index=True)
@@ -1188,6 +1198,54 @@ async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get
         return {"status": "success", "count": len(data_list)}
     except Exception as e:
         logger.error(f"Market Updates Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- STAFF ENDPOINTS ---
+@app.get("/api/staff/all")
+def get_all_staff(db: Session = Depends(get_db)):
+    items = db.query(StaffModel).all()
+    return [s.data for s in items if s.data is not None]
+
+@app.post("/api/staff/bulk-upsert")
+async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for data in data_list:
+            item_id = data.get("id")
+            if not item_id: continue
+            existing = db.query(StaffModel).filter(StaffModel.id == item_id).first()
+            if existing: existing.data = data
+            else: db.add(StaffModel(id=item_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Staff Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- AGENT APPLICATION ENDPOINTS ---
+@app.get("/api/application/all")
+def get_all_applications(db: Session = Depends(get_db)):
+    items = db.query(AgentApplicationModel).all()
+    return [a.data for a in items if a.data is not None]
+
+@app.post("/api/application/bulk-upsert")
+async def bulk_upsert_applications(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for data in data_list:
+            item_id = data.get("id")
+            if not item_id: continue
+            existing = db.query(AgentApplicationModel).filter(AgentApplicationModel.id == item_id).first()
+            if existing: existing.data = data
+            else: db.add(AgentApplicationModel(id=item_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Application Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- UNIFIED LOGIN ENDPOINT ---
