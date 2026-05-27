@@ -187,6 +187,11 @@ class StaffModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class ApplicationModel(Base):
+    __tablename__ = "applications"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class DocumentModel(Base):
     __tablename__ = "documents"
     id = Column(String, primary_key=True, index=True)
@@ -877,6 +882,66 @@ def delete_staff(staff_id: str, db: Session = Depends(get_db)):
     staff = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
     if staff:
         db.delete(staff)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- APPLICATION ENDPOINTS ---
+@app.post("/api/application/upsert")
+async def upsert_application(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    app_id = data.get("id")
+    if not app_id:
+        raise HTTPException(status_code=400, detail="Application ID missing")
+    
+    existing = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
+    if existing:
+        existing.data = data
+    else:
+        new_app = ApplicationModel(id=app_id, data=data)
+        db.add(new_app)
+    
+    db.commit()
+    return {"status": "success", "id": app_id}
+
+@app.get("/api/application/all")
+def get_all_applications(db: Session = Depends(get_db)):
+    app_list = db.query(ApplicationModel).all()
+    return [a.data for a in app_list if a.data is not None]
+
+@app.post("/api/application/bulk-upsert")
+async def bulk_upsert_application(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of applications")
+        
+        for data in data_list:
+            app_id = data.get("id")
+            if not app_id: continue
+            existing = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(ApplicationModel(id=app_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Application Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/application/delete/{app_id}")
+def delete_application(app_id: str, db: Session = Depends(get_db)):
+    if not app_id:
+        raise HTTPException(status_code=400, detail="Application ID missing")
+        
+    app = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
+    if app:
+        db.delete(app)
         db.commit()
     return {"status": "deleted"}
 
