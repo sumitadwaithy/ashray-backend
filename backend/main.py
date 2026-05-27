@@ -103,8 +103,16 @@ async def enforce_storage_governance(request: Request, call_next):
     response = await call_next(request)
     return response
 
+GOVERNANCE_API_KEY = os.getenv("GOVERNANCE_API_KEY", "ashray-governance-admin")
+
+async def verify_governance_key(request: Request):
+    key = request.headers.get("x-governance-key") or request.query_params.get("key")
+    if key != GOVERNANCE_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
 @app.post("/api/governance/rejected-payloads")
-async def get_rejected_payloads():
+async def get_rejected_payloads(request: Request):
+    await verify_governance_key(request)
     return {"rejected_count": len(REJECTED_PAYLOADS_LOG), "rejected": REJECTED_PAYLOADS_LOG[-50:]}
 
 # -------------------------
@@ -171,6 +179,11 @@ class InvestorModel(Base):
 
 class PendingReceiptModel(Base):
     __tablename__ = "pending_receipts"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class StaffModel(Base):
+    __tablename__ = "staff"
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
@@ -804,6 +817,66 @@ def delete_property(prop_id: str, db: Session = Depends(get_db)):
     prop = db.query(PropertyModel).filter(PropertyModel.id == prop_id).first()
     if prop:
         db.delete(prop)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- STAFF ENDPOINTS ---
+@app.post("/api/staff/upsert")
+async def upsert_staff(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"Failed to parse JSON body: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    staff_id = data.get("id")
+    if not staff_id:
+        raise HTTPException(status_code=400, detail="Staff ID missing")
+    
+    existing = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
+    if existing:
+        existing.data = data
+    else:
+        new_staff = StaffModel(id=staff_id, data=data)
+        db.add(new_staff)
+    
+    db.commit()
+    return {"status": "success", "id": staff_id}
+
+@app.get("/api/staff/all")
+def get_all_staff(db: Session = Depends(get_db)):
+    staff_list = db.query(StaffModel).all()
+    return [s.data for s in staff_list if s.data is not None]
+
+@app.post("/api/staff/bulk-upsert")
+async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list of staff")
+        
+        for data in data_list:
+            staff_id = data.get("id")
+            if not staff_id: continue
+            existing = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
+            if existing:
+                existing.data = data
+            else:
+                db.add(StaffModel(id=staff_id, data=data))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Staff Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/staff/delete/{staff_id}")
+def delete_staff(staff_id: str, db: Session = Depends(get_db)):
+    if not staff_id:
+        raise HTTPException(status_code=400, detail="Staff ID missing")
+        
+    staff = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
+    if staff:
+        db.delete(staff)
         db.commit()
     return {"status": "deleted"}
 
