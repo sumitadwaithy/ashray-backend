@@ -252,7 +252,7 @@ def get_db():
 def estimate_render_storage_bytes(db: Session) -> tuple[int, dict]:
     db_url = os.getenv("DATABASE_URL", "")
     tables = ["clients", "investors", "properties", "transactions", "docs", "documents", "referrals",
-              "pending_receipts", "loans", "staff", "banks", "folders", "categories", "applications"]
+              "pending_receipts", "staff", "applications"]
     sizes = {}
     total = 0
     for table in tables:
@@ -266,6 +266,7 @@ def estimate_render_storage_bytes(db: Session) -> tuple[int, dict]:
             sizes[table] = result
             total += result
         except Exception:
+            db.rollback()
             sizes[table] = 0
     return total, sizes
 
