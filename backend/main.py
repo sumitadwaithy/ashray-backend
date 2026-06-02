@@ -986,6 +986,26 @@ def delete_application(app_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
+# --- DOC SERVE & DOWNLOAD ENDPOINTS ---
+@app.get("/api/doc/serve/{doc_id}")
+async def serve_doc(doc_id: str, db: Session = Depends(get_db)):
+    doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+    if doc:
+        fp = doc.optimized_path or doc.file_path
+        if not fp:
+            raise HTTPException(status_code=404, detail="File not found")
+        content = await read_file(fp)
+        if content is None:
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
+    doc_old = db.query(DocModel).filter(DocModel.id == doc_id).first()
+    if not doc_old or not doc_old.data.get("fileData"):
+        raise HTTPException(status_code=404, detail="File not found")
+    fd = doc_old.data["fileData"]
+    h, e = fd.split(",", 1)
+    d = base64.b64decode(e)
+    return Response(content=d, media_type=h.split(":")[1].split(";")[0])
+
 # --- SETTINGS ENDPOINTS ---
 @app.get("/api/settings")
 def get_settings(db: Session = Depends(get_db)):
