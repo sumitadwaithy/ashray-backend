@@ -51,12 +51,17 @@ app.add_middleware(
 # -------------------------
 MAX_PAYLOAD_MB = 1
 MAX_PAYLOAD_BYTES = MAX_PAYLOAD_MB * 1024 * 1024
+MAX_RENDER_STORAGE_MB = int(os.getenv("MAX_RENDER_STORAGE_MB", "800"))
+MAX_RENDER_STORAGE_BYTES = MAX_RENDER_STORAGE_MB * 1024 * 1024
+RENDER_METADATA_ONLY = os.getenv("RENDER_METADATA_ONLY", "true").lower() != "false"
 REJECTED_PAYLOADS_LOG = []
 
 BINARY_FIELDS = {"fileData", "file_data", "binaryData", "binary_data", "content", "file_buffer",
                  "preview", "thumbnail", "optimizedData", "optimized_data", "attachments_binary"}
 
 def strip_binary_from_payload(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
     cleaned = {}
     for k, v in data.items():
         if k in BINARY_FIELDS:
@@ -69,6 +74,13 @@ def strip_binary_from_payload(data: dict) -> dict:
         else:
             cleaned[k] = v
     return cleaned
+
+def strip_binary_deep(data):
+    if isinstance(data, dict):
+        return strip_binary_from_payload(data)
+    if isinstance(data, list):
+        return [strip_binary_deep(item) for item in data]
+    return data
 
 @app.middleware("http")
 async def enforce_storage_governance(request: Request, call_next):
@@ -237,6 +249,34 @@ def get_db():
     finally:
         db.close()
 
+def estimate_render_storage_bytes(db: Session) -> tuple[int, dict]:
+    db_url = os.getenv("DATABASE_URL", "")
+    tables = ["clients", "investors", "properties", "transactions", "docs", "documents", "referrals",
+              "pending_receipts", "loans", "staff", "banks", "folders", "categories", "applications"]
+    sizes = {}
+    total = 0
+    for table in tables:
+        try:
+            if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
+                result = db.execute(text(f"SELECT pg_total_relation_size('{table}') as size")).scalar()
+            else:
+                rows = db.execute(text(f"SELECT COUNT(*) as cnt FROM {table}")).scalar()
+                result = (rows or 0) * 500
+            result = int(result or 0)
+            sizes[table] = result
+            total += result
+        except Exception:
+            sizes[table] = 0
+    return total, sizes
+
+def enforce_render_storage_budget(db: Session):
+    total, _sizes = estimate_render_storage_bytes(db)
+    if total >= MAX_RENDER_STORAGE_BYTES:
+        raise HTTPException(
+            status_code=507,
+            detail=f"Render metadata storage budget reached ({MAX_RENDER_STORAGE_MB} MB). Local backend must handle further sync."
+        )
+
 # --- MULTI-MACHINE / COMPANY MODELS ---
 class CompanyModel(Base):
     __tablename__ = "companies"
@@ -403,27 +443,11 @@ async def cloud_list_machines(companyId: str = None, db: Session = Depends(get_d
 # --- GOVERNANCE STORAGE ESTIMATE ---
 @app.get("/api/governance/storage-estimate")
 async def governance_storage_estimate(db: Session = Depends(get_db)):
-    db_url = os.getenv("DATABASE_URL", "")
-    tables = ["clients", "investors", "properties", "transactions", "docs", "referrals",
-              "pending_receipts", "loans", "staff", "banks", "folders", "categories"]
-    sizes = {}
-    total = 0
-    for table in tables:
-        try:
-            if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
-                result = db.execute(text(f"SELECT pg_total_relation_size('{table}') as size")).scalar()
-            else:
-                rows = db.execute(text(f"SELECT COUNT(*) as cnt FROM {table}")).scalar()
-                result = (rows or 0) * 500
-            if result is None:
-                rows = db.execute(text(f"SELECT COUNT(*) as cnt FROM {table}")).scalar()
-                result = (rows or 0) * 500
-            sizes[table] = result
-            total += result
-        except:
-            sizes[table] = 0
+    total, sizes = estimate_render_storage_bytes(db)
     return {"estimated_bytes": total, "estimated_mb": round(total / (1024 * 1024), 2),
-            "table_sizes": sizes, "max_mb": MAX_PAYLOAD_MB, "governance": "active",
+            "table_sizes": sizes, "max_mb": MAX_PAYLOAD_MB, "max_render_storage_mb": MAX_RENDER_STORAGE_MB,
+            "storage_budget_status": "ok" if total < MAX_RENDER_STORAGE_BYTES else "blocked",
+            "metadata_only": RENDER_METADATA_ONLY, "governance": "active",
             "governance_info": "Render stores metadata only. All files remain local."}
 
 # --- HEALTH CHECK (for Render cold start detection) ---
@@ -460,8 +484,9 @@ async def startup_event():
 
 # --- HELPER FOR GENERIC CRUD ---
 async def generic_upsert(request: Request, model, db: Session):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -481,8 +506,9 @@ async def generic_upsert(request: Request, model, db: Session):
     return {"status": "success", "id": item_id}
 
 async def generic_bulk_upsert(request: Request, model, db: Session):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list")
         
@@ -559,19 +585,21 @@ def get_all_docs(db: Session = Depends(get_db)):
     for d in old_docs:
         if d.data is None or d.id in migrated_ids:
             continue
-        all_docs.append(d.data)
+        all_docs.append(strip_binary_deep(d.data))
     return all_docs
 
 @app.post("/api/doc/upsert")
 @app.post("/api/documents")
 async def upsert_doc(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json()) if RENDER_METADATA_ONLY else await request.json()
     except Exception:
         return await upload_document_v2(request, db)
     if data.get("type") == "virtual" or data.get("is_virtual"):
         doc_id = data.get("id") or f"doc_{int(datetime.utcnow().timestamp())}"
         data["id"] = doc_id
+        data = strip_binary_deep(data)
         existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
         if existing:
             existing.data = data
@@ -605,7 +633,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
         ))
         db.commit()
     # Handle fileData base64: save to disk if present
-    file_data_raw = data.get("fileData")
+    file_data_raw = None if RENDER_METADATA_ONLY else data.get("fileData")
     if file_data_raw and isinstance(file_data_raw, str) and len(file_data_raw) > 100:
         try:
             import base64
@@ -643,7 +671,8 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
 
 @app.patch("/api/files/{doc_id}")
 async def patch_doc(doc_id: str, request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    enforce_render_storage_budget(db)
+    data = strip_binary_deep(await request.json())
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     if existing:
         for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
@@ -768,8 +797,9 @@ def duplicate_file(doc_id: str, db: Session = Depends(get_db)):
 # --- PROPERTY ENDPOINTS ---
 @app.post("/api/property/upsert")
 async def upsert_property(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -795,8 +825,9 @@ def get_all_properties(db: Session = Depends(get_db)):
 
 @app.post("/api/property/bulk-upsert")
 async def bulk_upsert_properties(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of properties")
         
@@ -828,8 +859,9 @@ def delete_property(prop_id: str, db: Session = Depends(get_db)):
 # --- STAFF ENDPOINTS ---
 @app.post("/api/staff/upsert")
 async def upsert_staff(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -855,8 +887,9 @@ def get_all_staff(db: Session = Depends(get_db)):
 
 @app.post("/api/staff/bulk-upsert")
 async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of staff")
         
@@ -888,8 +921,9 @@ def delete_staff(staff_id: str, db: Session = Depends(get_db)):
 # --- APPLICATION ENDPOINTS ---
 @app.post("/api/application/upsert")
 async def upsert_application(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -915,8 +949,9 @@ def get_all_applications(db: Session = Depends(get_db)):
 
 @app.post("/api/application/bulk-upsert")
 async def bulk_upsert_application(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of applications")
         
@@ -948,8 +983,9 @@ def delete_application(app_id: str, db: Session = Depends(get_db)):
 # --- CLIENT ENDPOINTS ---
 @app.post("/api/client/upsert")
 async def upsert_client(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -975,8 +1011,9 @@ def get_all_clients(db: Session = Depends(get_db)):
 
 @app.post("/api/client/bulk-upsert")
 async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of clients")
         
@@ -997,8 +1034,9 @@ async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
 # --- REFERRAL ENDPOINTS ---
 @app.post("/api/referral/upsert")
 async def upsert_referral(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -1024,8 +1062,9 @@ def get_all_referrals(db: Session = Depends(get_db)):
 
 @app.post("/api/referral/bulk-upsert")
 async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of referrals")
         logger.info(f"Bulk Upsert Referrals: Received {len(data_list)} items")
@@ -1069,8 +1108,9 @@ def cleanup_report_docs(db: Session = Depends(get_db)):
 
 @app.post("/api/doc/bulk-upsert")
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json()) if RENDER_METADATA_ONLY else await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of docs")
         logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
@@ -1079,10 +1119,11 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
             if not doc_id: continue
             if data.get("type") == "virtual" or data.get("is_virtual"):
                 existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
-                if existing: existing.data = data
-                else: db.add(DocModel(id=doc_id, data=data))
+                safe_data = strip_binary_deep(data)
+                if existing: existing.data = safe_data
+                else: db.add(DocModel(id=doc_id, data=safe_data))
                 continue
-            fdb64 = data.get("fileData")
+            fdb64 = None if RENDER_METADATA_ONLY else data.get("fileData")
             if fdb64 and isinstance(fdb64, str) and fdb64.startswith("data:"):
                 try:
                     mime = fdb64.split(":")[1].split(";")[0]
@@ -1347,8 +1388,9 @@ async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
 async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data = await request.json()
+        data = strip_binary_deep(await request.json())
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -1374,8 +1416,9 @@ def get_all_transactions(db: Session = Depends(get_db)):
 
 @app.post("/api/transaction/bulk-upsert")
 async def bulk_upsert_transactions(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of transactions")
         
@@ -1411,8 +1454,9 @@ def get_all_pending_receipts(db: Session = Depends(get_db)):
 
 @app.post("/api/pending-receipt/bulk-upsert")
 async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
     try:
-        data_list = await request.json()
+        data_list = strip_binary_deep(await request.json())
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list")
         for data in data_list:
@@ -1477,7 +1521,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         DocumentModel.clientId == client_id, DocumentModel.is_deleted == 0
                     ).all()
                     all_docs_old = db.query(DocModel).all()
-                    c["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("clientId") == client_id]
+                    c["docs"] = [strip_binary_deep(d.data) for d in all_docs_old if d.data and d.data.get("clientId") == client_id]
                     for d in all_docs_new:
                         c["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
@@ -1537,7 +1581,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         DocumentModel.investorId == investor_id, DocumentModel.is_deleted == 0
                     ).all()
                     all_docs_old = db.query(DocModel).all()
-                    i["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
+                    i["docs"] = [strip_binary_deep(d.data) for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
                     for d in all_docs_new:
                         i["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
