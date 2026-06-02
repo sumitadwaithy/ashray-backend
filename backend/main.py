@@ -51,6 +51,8 @@ app.add_middleware(
 # -------------------------
 MAX_PAYLOAD_MB = 1
 MAX_PAYLOAD_BYTES = MAX_PAYLOAD_MB * 1024 * 1024
+MAX_DOC_SYNC_PAYLOAD_MB = int(os.getenv("MAX_DOC_SYNC_PAYLOAD_MB", "8"))
+MAX_DOC_SYNC_PAYLOAD_BYTES = MAX_DOC_SYNC_PAYLOAD_MB * 1024 * 1024
 MAX_RENDER_STORAGE_MB = int(os.getenv("MAX_RENDER_STORAGE_MB", "800"))
 MAX_RENDER_STORAGE_BYTES = MAX_RENDER_STORAGE_MB * 1024 * 1024
 RENDER_METADATA_ONLY = os.getenv("RENDER_METADATA_ONLY", "true").lower() != "false"
@@ -86,16 +88,18 @@ def strip_binary_deep(data):
 async def enforce_storage_governance(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_PAYLOAD_BYTES:
-            logger.warning(f"⛔ PAYLOAD REJECTED — {request.method} {request.url.path} — {content_length} bytes exceeds {MAX_PAYLOAD_MB} MB limit")
+        max_payload_bytes = MAX_DOC_SYNC_PAYLOAD_BYTES if request.url.path == "/api/doc/bulk-upsert" else MAX_PAYLOAD_BYTES
+        max_payload_mb = MAX_DOC_SYNC_PAYLOAD_MB if request.url.path == "/api/doc/bulk-upsert" else MAX_PAYLOAD_MB
+        if content_length and int(content_length) > max_payload_bytes:
+            logger.warning(f"⛔ PAYLOAD REJECTED — {request.method} {request.url.path} — {content_length} bytes exceeds {max_payload_mb} MB limit")
             REJECTED_PAYLOADS_LOG.append({
                 "path": request.url.path, "method": request.method,
                 "size": int(content_length), "rejected_at": datetime.utcnow().isoformat(),
-                "reason": f"Exceeds {MAX_PAYLOAD_MB} MB limit"
+                "reason": f"Exceeds {max_payload_mb} MB limit"
             })
             return JSONResponse(
                 status_code=413,
-                content={"error": f"Payload exceeds {MAX_PAYLOAD_MB} MB limit", "governance": "enforced"}
+                content={"error": f"Payload exceeds {max_payload_mb} MB limit", "governance": "enforced"}
             )
 
         if request.method in ("POST", "PUT", "PATCH"):
@@ -229,6 +233,7 @@ class DocumentModel(Base):
     loanId = Column(String, nullable=True, index=True)
     kissanId = Column(String, nullable=True, index=True)
     staffId = Column(String, nullable=True, index=True)
+    transactionId = Column(String, nullable=True, index=True)
     category_id = Column(String, nullable=True)
     folder_id = Column(String, nullable=True)
     category = Column(String, nullable=True)
@@ -242,6 +247,18 @@ class DocumentModel(Base):
 # Create tables
 try:
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            existing_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(documents)")).fetchall()}
+            if "transactionId" not in existing_columns:
+                conn.execute(text('ALTER TABLE documents ADD COLUMN "transactionId" VARCHAR'))
+        else:
+            has_transaction_id = conn.execute(text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'documents' AND column_name = 'transactionId'"
+            )).scalar()
+            if not has_transaction_id:
+                conn.execute(text('ALTER TABLE documents ADD COLUMN "transactionId" VARCHAR'))
     logger.info("✅ Database tables initialized.")
 except Exception as e:
     logger.error(f"❌ Failed to create tables: {str(e)}")
@@ -570,6 +587,7 @@ def get_all_docs(db: Session = Depends(get_db)):
             "loanId": d.loanId,
             "kissanId": d.kissanId,
             "staffId": d.staffId,
+            "transactionId": d.transactionId,
             "category": d.category,
             "category_id": d.category_id,
             "folder_id": d.folder_id,
@@ -617,7 +635,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     now = datetime.utcnow().isoformat()
     if existing:
-        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
+        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = now
@@ -631,6 +649,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             loanId=data.get("loanId"),
             kissanId=data.get("kissanId"),
             staffId=data.get("staffId"),
+            transactionId=data.get("transactionId"),
             category=data.get("category"),
             category_id=data.get("category_id"),
             folder_id=data.get("folder_id"),
@@ -671,7 +690,8 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             logger.error(f"Failed to save fileData for doc {doc_id}: {e}")
     return {
         "id": doc_id, "name": data.get("name") or doc_id, "file_name": data.get("file_name") or doc_id,
-        "clientId": data.get("clientId"), "fileData": None, "category": data.get("category"),
+        "clientId": data.get("clientId"), "transactionId": data.get("transactionId"),
+        "fileData": None, "category": data.get("category"),
         "type": "file", "date": data.get("date"),
     }
 
@@ -681,7 +701,7 @@ async def patch_doc(doc_id: str, request: Request, db: Session = Depends(get_db)
     data = strip_binary_deep(await request.json())
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     if existing:
-        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
+        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date", "original_name"]:
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = datetime.utcnow().isoformat()
@@ -754,11 +774,12 @@ async def upload_document_v2(request: Request, db: Session = Depends(get_db)):
         compression_ratio=str(cr["compression_ratio"]) if cr.get("compression_ratio") else None,
         is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
         clientId=form.get("clientId"), category_id=form.get("category_id"), folder_id=form.get("folder_id"),
+        transactionId=form.get("transactionId"),
         date=datetime.utcnow().strftime("%Y-%m-%d"), created_at=now, updated_at=now, is_virtual=0,
     )
     db.add(doc); db.commit()
     return {"id": doc.id, "name": doc.original_name, "file_name": doc.original_name,
-            "clientId": doc.clientId, "type": "file", "date": doc.date,
+            "clientId": doc.clientId, "transactionId": doc.transactionId, "type": "file", "date": doc.date,
             "mime_type": doc.mime_type, "size": doc.size, "fileData": None}
 
 @app.delete("/api/trash/empty")
@@ -786,7 +807,8 @@ def duplicate_file(doc_id: str, db: Session = Depends(get_db)):
             sha256_hash=existing.sha256_hash, compression_ratio=existing.compression_ratio,
             is_compressed=existing.is_compressed, preview_ready=existing.preview_ready,
             clientId=existing.clientId, investorId=existing.investorId, loanId=existing.loanId,
-            kissanId=existing.kissanId, staffId=existing.staffId, category=existing.category,
+            kissanId=existing.kissanId, staffId=existing.staffId, transactionId=existing.transactionId,
+            category=existing.category,
             category_id=existing.category_id, folder_id=existing.folder_id, date=existing.date,
             created_at=now, updated_at=now, is_virtual=existing.is_virtual,
         )
@@ -1211,7 +1233,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         "preview_ready": 1 if cr["preview_ready"] else 0,
                         "compression_ratio": str(cr["compression_ratio"]) if cr.get("compression_ratio") else None}.items():
                         setattr(existing, k, v)
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
@@ -1225,6 +1247,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
+                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now, is_virtual=0,
                     ))
@@ -1234,7 +1257,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 now = datetime.utcnow().isoformat()
                 existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
                 if existing:
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date", "original_name"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
@@ -1242,6 +1265,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
+                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now,
                         mime_type=data.get("mime_type"), is_virtual=0,
@@ -1402,6 +1426,7 @@ async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get
                 is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
                 clientId=dd.get("clientId"), investorId=dd.get("investorId"),
                 loanId=dd.get("loanId"), kissanId=dd.get("kissanId"), staffId=dd.get("staffId"),
+                transactionId=dd.get("transactionId"),
                 category=dd.get("category"), category_id=dd.get("category_id"), folder_id=dd.get("folder_id"),
                 date=dd.get("date"), created_at=dd.get("created_at") or now, updated_at=now, is_virtual=0,
             )
@@ -1592,6 +1617,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         c["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
                             "clientId": d.clientId, "category": d.category, "type": "file",
+                            "transactionId": d.transactionId,
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
                             "has_file": True, "fileData": None,
                         })
@@ -1652,6 +1678,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         i["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
                             "investorId": d.investorId, "category": d.category, "type": "file",
+                            "transactionId": d.transactionId,
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
                             "has_file": True, "fileData": None,
                         })
