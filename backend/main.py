@@ -194,6 +194,11 @@ class PendingReceiptModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class SettingsModel(Base):
+    __tablename__ = "settings"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class StaffModel(Base):
     __tablename__ = "staff"
     id = Column(String, primary_key=True, index=True)
@@ -980,6 +985,38 @@ def delete_application(app_id: str, db: Session = Depends(get_db)):
         db.delete(app)
         db.commit()
     return {"status": "deleted"}
+
+# --- SETTINGS ENDPOINTS ---
+@app.get("/api/settings")
+def get_settings(db: Session = Depends(get_db)):
+    try:
+        setting = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
+        if setting and setting.data:
+            return setting.data
+        fallback = db.query(SettingsModel).first()
+        if fallback and fallback.data:
+            return fallback.data
+        return {}
+    except Exception as e:
+        logger.error(f"Failed to fetch settings: {str(e)}")
+        return {}
+
+@app.post("/api/settings")
+async def upsert_settings(request: Request, db: Session = Depends(get_db)):
+    enforce_render_storage_budget(db)
+    try:
+        data = strip_binary_deep(await request.json())
+    except Exception as e:
+        logger.error(f"Failed to parse settings JSON: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    setting = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
+    if setting:
+        setting.data = data
+    else:
+        db.add(SettingsModel(id="main", data=data))
+    db.commit()
+    return {"status": "success"}
 
 # --- CLIENT ENDPOINTS ---
 @app.post("/api/client/upsert")
