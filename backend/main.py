@@ -1168,9 +1168,17 @@ def cleanup_report_docs(db: Session = Depends(get_db)):
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
     enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json()) if RENDER_METADATA_ONLY else await request.json()
-        if not isinstance(data_list, list):
+        raw_list = await request.json()
+        if not isinstance(raw_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of docs")
+        data_list = []
+        for item in raw_list:
+            if item.get("category") == "RECEIPT":
+                data_list.append(item)
+            elif RENDER_METADATA_ONLY:
+                data_list.append(strip_binary_deep(item))
+            else:
+                data_list.append(item)
         logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
         for data in data_list:
             doc_id = data.get("id")
@@ -1181,7 +1189,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 if existing: existing.data = safe_data
                 else: db.add(DocModel(id=doc_id, data=safe_data))
                 continue
-            fdb64 = None if RENDER_METADATA_ONLY else data.get("fileData")
+            fdb64 = data.get("fileData")
             if fdb64 and isinstance(fdb64, str) and fdb64.startswith("data:"):
                 try:
                     mime = fdb64.split(":")[1].split(";")[0]
