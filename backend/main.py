@@ -213,6 +213,11 @@ class ApplicationModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class MarketUpdateModel(Base):
+    __tablename__ = "market_updates"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class DocumentModel(Base):
     __tablename__ = "documents"
     id = Column(String, primary_key=True, index=True)
@@ -1561,6 +1566,68 @@ async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(g
     except Exception as e:
         logger.error(f"Pending Receipt Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- MARKET UPDATES ENDPOINTS ---
+@app.get("/api/market-updates/all")
+def get_all_market_updates(db: Session = Depends(get_db)):
+    items = db.query(MarketUpdateModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.get("/api/market-updates")
+def get_market_updates(propertyId: str = None, db: Session = Depends(get_db)):
+    items = db.query(MarketUpdateModel).all()
+    result = [i.data for i in items if i.data is not None]
+    if propertyId:
+        result = [r for r in result if r.get("propertyId") == propertyId]
+    return result
+
+@app.post("/api/market-updates/upsert")
+async def upsert_market_update(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, MarketUpdateModel, db)
+
+@app.post("/api/market-updates/bulk-upsert")
+async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, MarketUpdateModel, db)
+
+@app.delete("/api/market-updates/delete/{item_id}")
+def delete_market_update(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(MarketUpdateModel).filter(MarketUpdateModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- ACTIVE BACKEND DISCOVERY ---
+# Returns list of registered local machines that have sent a heartbeat recently.
+# Website uses this to discover the local backend when it's online.
+@app.get("/api/active-backend")
+async def get_active_backend(companyId: str = None, db: Session = Depends(get_db)):
+    from datetime import timedelta
+    threshold = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+    q = db.query(CloudMachineModel).filter(
+        CloudMachineModel.status == "Online",
+        CloudMachineModel.lastHeartbeat >= threshold
+    )
+    if companyId:
+        q = q.filter(CloudMachineModel.companyId == companyId)
+    machines = q.order_by(CloudMachineModel.lastHeartbeat.desc()).all()
+    if not machines:
+        return {"available": False, "machines": []}
+    return {
+        "available": True,
+        "machines": [
+            {
+                "machineId": m.machineId,
+                "name": m.name,
+                "lanIP": m.lanIP,
+                "port": m.port,
+                "status": m.status,
+                "isActiveRelay": bool(m.isActiveRelay),
+                "lastHeartbeat": m.lastHeartbeat,
+            }
+            for m in machines
+        ],
+    }
 
 # --- UNIFIED LOGIN ENDPOINT ---
 @app.post("/api/auth/login")
