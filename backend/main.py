@@ -1233,15 +1233,10 @@ async def upsert_settings(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/staff/all")
 def get_all_staff(db: Session = Depends(get_db)):
     try:
-        from sqlalchemy import Column, String, JSON, Table, MetaData
-        # Try to query staff table if it exists
-        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
-        if 'staff' in inspector.get_table_names():
-            rows = db.execute(text("SELECT data FROM staff")).all()
-            return [r[0] for r in rows if r[0] is not None]
-        return []
+        rows = db.execute(text("SELECT data FROM staff")).all()
+        return [r[0] for r in rows if r[0] is not None]
     except Exception as e:
-        logger.warning(f"Staff query failed: {str(e)}")
+        logger.warning(f"Staff query failed (table may not exist): {str(e)}")
         return []
 
 @app.post("/api/staff/bulk-upsert")
@@ -1270,23 +1265,20 @@ async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/market-updates/all")
 def get_all_market_updates(db: Session = Depends(get_db)):
     try:
-        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
-        if 'property_market_updates' in inspector.get_table_names():
-            rows = db.execute(text("SELECT * FROM property_market_updates")).all()
-            results = []
-            for r in rows:
-                item = dict(r._mapping)
-                if isinstance(item.get('attachments'), str):
-                    try: item['attachments'] = json.loads(item['attachments'])
-                    except: item['attachments'] = []
-                if isinstance(item.get('articleLinks'), str):
-                    try: item['articleLinks'] = json.loads(item['articleLinks'])
-                    except: item['articleLinks'] = []
-                results.append(item)
-            return results
-        return []
+        rows = db.execute(text("SELECT * FROM property_market_updates")).all()
+        results = []
+        for r in rows:
+            item = dict(r._mapping)
+            if isinstance(item.get('attachments'), str):
+                try: item['attachments'] = json.loads(item['attachments'])
+                except: item['attachments'] = []
+            if isinstance(item.get('articleLinks'), str):
+                try: item['articleLinks'] = json.loads(item['articleLinks'])
+                except: item['articleLinks'] = []
+            results.append(item)
+        return results
     except Exception as e:
-        logger.warning(f"Market updates query failed: {str(e)}")
+        logger.warning(f"Market updates query failed (table may not exist): {str(e)}")
         return []
 
 @app.post("/api/market-updates/bulk-upsert")
@@ -1315,13 +1307,10 @@ async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get
 @app.get("/api/application/all")
 def get_all_applications(db: Session = Depends(get_db)):
     try:
-        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
-        if 'applications' in inspector.get_table_names():
-            rows = db.execute(text("SELECT data FROM applications")).all()
-            return [r[0] for r in rows if r[0] is not None]
-        return []
+        rows = db.execute(text("SELECT data FROM applications")).all()
+        return [r[0] for r in rows if r[0] is not None]
     except Exception as e:
-        logger.warning(f"Applications query failed: {str(e)}")
+        logger.warning(f"Applications query failed (table may not exist): {str(e)}")
         return []
 
 @app.post("/api/application/bulk-upsert")
