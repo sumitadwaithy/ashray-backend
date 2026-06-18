@@ -1,4 +1,5 @@
 import base64
+import json
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -1199,6 +1200,149 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
         logger.error(f"❌ LOGIN ERROR: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "Internal Server Error"})
     
+
+# =========================================================
+# SETTINGS ENDPOINTS
+# =========================================================
+@app.get("/api/settings")
+def get_settings(db: Session = Depends(get_db)):
+    try:
+        row = db.query(ClientModel).filter(ClientModel.id == "main").first()
+        return row.data if row and row.data else {}
+    except:
+        return {}
+
+@app.post("/api/settings")
+async def upsert_settings(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+        existing = db.query(ClientModel).filter(ClientModel.id == "main").first()
+        if existing:
+            existing.data = data
+        else:
+            db.add(ClientModel(id="main", data=data))
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Settings Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =========================================================
+# STAFF ENDPOINTS (passthrough)
+# =========================================================
+@app.get("/api/staff/all")
+def get_all_staff(db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import Column, String, JSON, Table, MetaData
+        # Try to query staff table if it exists
+        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
+        if 'staff' in inspector.get_table_names():
+            rows = db.execute(text("SELECT data FROM staff")).all()
+            return [r[0] for r in rows if r[0] is not None]
+        return []
+    except Exception as e:
+        logger.warning(f"Staff query failed: {str(e)}")
+        return []
+
+@app.post("/api/staff/bulk-upsert")
+async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for item in data_list:
+            item_id = item.get("id")
+            if not item_id: continue
+            existing = db.query(ClientModel).filter(ClientModel.id == f"staff_{item_id}").first()
+            if existing:
+                existing.data = item
+            else:
+                db.add(ClientModel(id=f"staff_{item_id}", data=item))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Staff Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =========================================================
+# MARKET UPDATES ENDPOINTS (passthrough)
+# =========================================================
+@app.get("/api/market-updates/all")
+def get_all_market_updates(db: Session = Depends(get_db)):
+    try:
+        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
+        if 'property_market_updates' in inspector.get_table_names():
+            rows = db.execute(text("SELECT * FROM property_market_updates")).all()
+            results = []
+            for r in rows:
+                item = dict(r._mapping)
+                if isinstance(item.get('attachments'), str):
+                    try: item['attachments'] = json.loads(item['attachments'])
+                    except: item['attachments'] = []
+                if isinstance(item.get('articleLinks'), str):
+                    try: item['articleLinks'] = json.loads(item['articleLinks'])
+                    except: item['articleLinks'] = []
+                results.append(item)
+            return results
+        return []
+    except Exception as e:
+        logger.warning(f"Market updates query failed: {str(e)}")
+        return []
+
+@app.post("/api/market-updates/bulk-upsert")
+async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for item in data_list:
+            item_id = item.get("id")
+            if not item_id: continue
+            existing = db.query(ClientModel).filter(ClientModel.id == f"mu_{item_id}").first()
+            if existing:
+                existing.data = item
+            else:
+                db.add(ClientModel(id=f"mu_{item_id}", data=item))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Market Updates Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =========================================================
+# APPLICATION ENDPOINTS (passthrough)
+# =========================================================
+@app.get("/api/application/all")
+def get_all_applications(db: Session = Depends(get_db)):
+    try:
+        inspector = __import__('sqlalchemy', fromlist=['inspect']).inspect(db.bind())
+        if 'applications' in inspector.get_table_names():
+            rows = db.execute(text("SELECT data FROM applications")).all()
+            return [r[0] for r in rows if r[0] is not None]
+        return []
+    except Exception as e:
+        logger.warning(f"Applications query failed: {str(e)}")
+        return []
+
+@app.post("/api/application/bulk-upsert")
+async def bulk_upsert_applications(request: Request, db: Session = Depends(get_db)):
+    try:
+        data_list = await request.json()
+        if not isinstance(data_list, list):
+            raise HTTPException(status_code=400, detail="Expected a list")
+        for item in data_list:
+            item_id = item.get("id")
+            if not item_id: continue
+            existing = db.query(ClientModel).filter(ClientModel.id == f"app_{item_id}").first()
+            if existing:
+                existing.data = item
+            else:
+                db.add(ClientModel(id=f"app_{item_id}", data=item))
+        db.commit()
+        return {"status": "success", "count": len(data_list)}
+    except Exception as e:
+        logger.error(f"Applications Bulk Upsert Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
