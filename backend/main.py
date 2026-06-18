@@ -47,100 +47,14 @@ app.add_middleware(
 )
 
 # -------------------------
-# STRICT STORAGE GOVERNANCE — Render Cloud Enforcement
-# -------------------------
-MAX_PAYLOAD_MB = 1
-MAX_PAYLOAD_BYTES = MAX_PAYLOAD_MB * 1024 * 1024
-MAX_DOC_SYNC_PAYLOAD_MB = int(os.getenv("MAX_DOC_SYNC_PAYLOAD_MB", "8"))
-MAX_DOC_SYNC_PAYLOAD_BYTES = MAX_DOC_SYNC_PAYLOAD_MB * 1024 * 1024
-MAX_RENDER_STORAGE_MB = int(os.getenv("MAX_RENDER_STORAGE_MB", "800"))
-MAX_RENDER_STORAGE_BYTES = MAX_RENDER_STORAGE_MB * 1024 * 1024
-RENDER_METADATA_ONLY = os.getenv("RENDER_METADATA_ONLY", "true").lower() != "false"
-REJECTED_PAYLOADS_LOG = []
-
-BINARY_FIELDS = {"fileData", "file_data", "binaryData", "binary_data", "content", "file_buffer",
-                 "preview", "thumbnail", "optimizedData", "optimized_data", "attachments_binary"}
-
-def strip_binary_from_payload(data: dict) -> dict:
-    if not isinstance(data, dict):
-        return data
-    cleaned = {}
-    for k, v in data.items():
-        if k in BINARY_FIELDS:
-            cleaned[k] = "[STRIPPED by Render governance]"
-            continue
-        if isinstance(v, dict):
-            cleaned[k] = strip_binary_from_payload(v)
-        elif isinstance(v, list):
-            cleaned[k] = [strip_binary_from_payload(item) if isinstance(item, dict) else item for item in v]
-        else:
-            cleaned[k] = v
-    return cleaned
-
-def strip_binary_deep(data):
-    if isinstance(data, dict):
-        return strip_binary_from_payload(data)
-    if isinstance(data, list):
-        return [strip_binary_deep(item) for item in data]
-    return data
-
-@app.middleware("http")
-async def enforce_storage_governance(request: Request, call_next):
-    if request.url.path.startswith("/api/"):
-        content_length = request.headers.get("content-length")
-        max_payload_bytes = MAX_DOC_SYNC_PAYLOAD_BYTES if request.url.path == "/api/doc/bulk-upsert" else MAX_PAYLOAD_BYTES
-        max_payload_mb = MAX_DOC_SYNC_PAYLOAD_MB if request.url.path == "/api/doc/bulk-upsert" else MAX_PAYLOAD_MB
-        if content_length and int(content_length) > max_payload_bytes:
-            logger.warning(f"⛔ PAYLOAD REJECTED — {request.method} {request.url.path} — {content_length} bytes exceeds {max_payload_mb} MB limit")
-            REJECTED_PAYLOADS_LOG.append({
-                "path": request.url.path, "method": request.method,
-                "size": int(content_length), "rejected_at": datetime.utcnow().isoformat(),
-                "reason": f"Exceeds {max_payload_mb} MB limit"
-            })
-            return JSONResponse(
-                status_code=413,
-                content={"error": f"Payload exceeds {max_payload_mb} MB limit", "governance": "enforced"}
-            )
-
-        if request.method in ("POST", "PUT", "PATCH"):
-            if "/upload" in request.url.path or "/documents" in request.url.path:
-                if "multipart/form-data" in request.headers.get("content-type", ""):
-                    logger.warning(f"⛔ FILE UPLOAD REJECTED — {request.method} {request.url.path}")
-                    REJECTED_PAYLOADS_LOG.append({
-                        "path": request.url.path, "method": request.method,
-                        "rejected_at": datetime.utcnow().isoformat(),
-                        "reason": "File uploads not allowed on Render (local-first only)"
-                    })
-                    return JSONResponse(
-                        status_code=403,
-                        content={"error": "File uploads not allowed on Render relay. Use local machine.", "governance": "enforced"}
-                    )
-
-    response = await call_next(request)
-    return response
-
-GOVERNANCE_API_KEY = os.getenv("GOVERNANCE_API_KEY", "ashray-governance-admin")
-
-async def verify_governance_key(request: Request):
-    key = request.headers.get("x-governance-key") or request.query_params.get("key")
-    if key != GOVERNANCE_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-@app.post("/api/governance/rejected-payloads")
-async def get_rejected_payloads(request: Request):
-    await verify_governance_key(request)
-    return {"rejected_count": len(REJECTED_PAYLOADS_LOG), "rejected": REJECTED_PAYLOADS_LOG[-50:]}
-
-# -------------------------
 # DATABASE SETUP
 # -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
 
 # Fallback for local testing or if env var is missing
 if not DATABASE_URL:
-    logger.warning("⚠️ DATABASE_URL not set! Using local SQLite. Data will be LOST on Render restart!")
-    logger.warning("→ Set DATABASE_URL env var to a persistent PostgreSQL URL on Render dashboard.")
-    logger.warning("→ Render provides a free PostgreSQL DB: https://dashboard.render.com/new/database")
+    logger.warning("⚠️ DATABASE_URL not set! Using local SQLite. Data will be LOST on restart!")
+    logger.warning("→ Set DATABASE_URL env var to a persistent PostgreSQL URL.")
     DATABASE_URL = "sqlite:///./test.db"
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -198,26 +112,6 @@ class PendingReceiptModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
-class SettingsModel(Base):
-    __tablename__ = "settings"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class StaffModel(Base):
-    __tablename__ = "staff"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class ApplicationModel(Base):
-    __tablename__ = "applications"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
-class MarketUpdateModel(Base):
-    __tablename__ = "market_updates"
-    id = Column(String, primary_key=True, index=True)
-    data = Column(JSON)
-
 class DocumentModel(Base):
     __tablename__ = "documents"
     id = Column(String, primary_key=True, index=True)
@@ -238,7 +132,6 @@ class DocumentModel(Base):
     loanId = Column(String, nullable=True, index=True)
     kissanId = Column(String, nullable=True, index=True)
     staffId = Column(String, nullable=True, index=True)
-    transactionId = Column(String, nullable=True, index=True)
     category_id = Column(String, nullable=True)
     folder_id = Column(String, nullable=True)
     category = Column(String, nullable=True)
@@ -252,18 +145,6 @@ class DocumentModel(Base):
 # Create tables
 try:
     Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:
-        if engine.dialect.name == "sqlite":
-            existing_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(documents)")).fetchall()}
-            if "transactionId" not in existing_columns:
-                conn.execute(text('ALTER TABLE documents ADD COLUMN "transactionId" VARCHAR'))
-        else:
-            has_transaction_id = conn.execute(text(
-                "SELECT 1 FROM information_schema.columns "
-                "WHERE table_name = 'documents' AND column_name = 'transactionId'"
-            )).scalar()
-            if not has_transaction_id:
-                conn.execute(text('ALTER TABLE documents ADD COLUMN "transactionId" VARCHAR'))
     logger.info("✅ Database tables initialized.")
 except Exception as e:
     logger.error(f"❌ Failed to create tables: {str(e)}")
@@ -276,209 +157,7 @@ def get_db():
     finally:
         db.close()
 
-def estimate_render_storage_bytes(db: Session) -> tuple[int, dict]:
-    db_url = os.getenv("DATABASE_URL", "")
-    tables = ["clients", "investors", "properties", "transactions", "docs", "documents", "referrals",
-              "pending_receipts", "staff", "applications"]
-    sizes = {}
-    total = 0
-    for table in tables:
-        try:
-            if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
-                result = db.execute(text(f"SELECT pg_total_relation_size('{table}') as size")).scalar()
-            else:
-                rows = db.execute(text(f"SELECT COUNT(*) as cnt FROM {table}")).scalar()
-                result = (rows or 0) * 500
-            result = int(result or 0)
-            sizes[table] = result
-            total += result
-        except Exception:
-            db.rollback()
-            sizes[table] = 0
-    return total, sizes
-
-def enforce_render_storage_budget(db: Session):
-    total, _sizes = estimate_render_storage_bytes(db)
-    if total >= MAX_RENDER_STORAGE_BYTES:
-        raise HTTPException(
-            status_code=507,
-            detail=f"Render metadata storage budget reached ({MAX_RENDER_STORAGE_MB} MB). Local backend must handle further sync."
-        )
-
-# --- MULTI-MACHINE / COMPANY MODELS ---
-class CompanyModel(Base):
-    __tablename__ = "companies"
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    syncKey = Column(String, nullable=False)
-    machineId = Column(String, nullable=False)
-    createdAt = Column(String, nullable=False)
-
-class CloudMachineModel(Base):
-    __tablename__ = "cloud_machines"
-    id = Column(String, primary_key=True)
-    machineId = Column(String, index=True, nullable=False)
-    companyId = Column(String, index=True, nullable=False)
-    name = Column(String, nullable=True)
-    lanIP = Column(String, nullable=True)
-    port = Column(Integer, default=3001)
-    status = Column(String, default="Online")
-    isRelayEligible = Column(Integer, default=1)
-    isActiveRelay = Column(Integer, default=0)
-    lastHeartbeat = Column(String, nullable=True)
-    machineVersion = Column(String, nullable=True)
-
-# --- COMPANY ENDPOINTS ---
-@app.post("/api/company/create")
-async def cloud_create_company(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        company_id = data.get("companyId")
-        name = data.get("companyName")
-        sync_key = data.get("syncKey")
-        machine_id = data.get("machineId")
-        if not all([company_id, name, sync_key, machine_id]):
-            raise HTTPException(status_code=400, detail="Missing required fields")
-        existing = db.query(CompanyModel).filter(CompanyModel.id == company_id).first()
-        if existing:
-            return {"status": "exists", "companyId": company_id}
-        company = CompanyModel(id=company_id, name=name, syncKey=sync_key, machineId=machine_id, createdAt=datetime.utcnow().isoformat())
-        db.add(company)
-        db.commit()
-        return {"status": "created", "companyId": company_id}
-    except Exception as e:
-        logger.error(f"Company create error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/company/verify")
-async def cloud_verify_company(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        company_id = data.get("companyId")
-        sync_key = data.get("syncKey")
-        if not company_id or not sync_key:
-            raise HTTPException(status_code=400, detail="Missing companyId or syncKey")
-        company = db.query(CompanyModel).filter(CompanyModel.id == company_id).first()
-        if not company:
-            return {"valid": False, "error": "Company not found"}
-        if company.syncKey != sync_key:
-            return {"valid": False, "error": "Invalid sync key"}
-        machines = db.query(CloudMachineModel).filter(
-            CloudMachineModel.companyId == company_id,
-            CloudMachineModel.status == "Online"
-        ).all()
-        return {"valid": True, "companyName": company.name, "machineCount": len(machines), "machines": [{"machineId": m.machineId, "name": m.name, "lanIP": m.lanIP, "status": m.status} for m in machines]}
-    except Exception as e:
-        logger.error(f"Company verify error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/machine/register")
-async def cloud_register_machine(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        machine_id = data.get("machineId")
-        company_id = data.get("companyId")
-        name = data.get("name", "Unknown")
-        lan_ip = data.get("lanIP", "")
-        port = data.get("port", 3001)
-        machine_version = data.get("machineVersion", "1.0.0")
-        if not all([machine_id, company_id]):
-            raise HTTPException(status_code=400, detail="Missing machineId or companyId")
-        existing = db.query(CloudMachineModel).filter(CloudMachineModel.machineId == machine_id).first()
-        now = datetime.utcnow().isoformat()
-        if existing:
-            existing.lanIP = lan_ip
-            existing.port = port
-            existing.status = "Online"
-            existing.lastHeartbeat = now
-            existing.machineVersion = machine_version
-            existing.name = name
-        else:
-            machine = CloudMachineModel(
-                id=f"CM-{uuid.uuid4().hex[:8].upper()}",
-                machineId=machine_id, companyId=company_id, name=name,
-                lanIP=lan_ip, port=port, status="Online",
-                isRelayEligible=1, isActiveRelay=0,
-                lastHeartbeat=now, machineVersion=machine_version
-            )
-            db.add(machine)
-        db.commit()
-        return {"status": "registered", "machineId": machine_id}
-    except Exception as e:
-        logger.error(f"Machine register error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/machine/heartbeat")
-async def cloud_machine_heartbeat(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        machine_id = data.get("machineId")
-        company_id = data.get("companyId")
-        if not machine_id or not company_id:
-            raise HTTPException(status_code=400, detail="Missing machineId or companyId")
-        machine = db.query(CloudMachineModel).filter(
-            CloudMachineModel.machineId == machine_id,
-            CloudMachineModel.companyId == company_id
-        ).first()
-        if not machine:
-            raise HTTPException(status_code=404, detail="Machine not found")
-        machine.lastHeartbeat = datetime.utcnow().isoformat()
-        machine.status = "Online"
-        machine.lanIP = data.get("lanIP", machine.lanIP)
-        machine.isActiveRelay = 1 if data.get("isActiveRelay") else 0
-        db.commit()
-        return {"status": "ok", "lastHeartbeat": machine.lastHeartbeat}
-    except Exception as e:
-        logger.error(f"Heartbeat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/machine/relay-report")
-async def cloud_relay_report(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        company_id = data.get("companyId")
-        relay_machine_id = data.get("relayMachineId")
-        if not company_id or not relay_machine_id:
-            raise HTTPException(status_code=400, detail="Missing fields")
-        db.query(CloudMachineModel).filter(
-            CloudMachineModel.companyId == company_id
-        ).update({"isActiveRelay": 0})
-        db.query(CloudMachineModel).filter(
-            CloudMachineModel.machineId == relay_machine_id,
-            CloudMachineModel.companyId == company_id
-        ).update({"isActiveRelay": 1})
-        db.commit()
-        return {"status": "relay_updated", "relayMachineId": relay_machine_id}
-    except Exception as e:
-        logger.error(f"Relay report error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/machines")
-async def cloud_list_machines(companyId: str = None, db: Session = Depends(get_db)):
-    try:
-        q = db.query(CloudMachineModel)
-        if companyId:
-            q = q.filter(CloudMachineModel.companyId == companyId)
-        machines = q.order_by(CloudMachineModel.lastHeartbeat.desc()).all()
-        return [{"machineId": m.machineId, "name": m.name, "lanIP": m.lanIP, "port": m.port,
-                 "status": m.status, "isRelayEligible": bool(m.isRelayEligible),
-                 "isActiveRelay": bool(m.isActiveRelay), "lastHeartbeat": m.lastHeartbeat,
-                 "machineVersion": m.machineVersion} for m in machines]
-    except Exception as e:
-        logger.error(f"List machines error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- GOVERNANCE STORAGE ESTIMATE ---
-@app.get("/api/governance/storage-estimate")
-async def governance_storage_estimate(db: Session = Depends(get_db)):
-    total, sizes = estimate_render_storage_bytes(db)
-    return {"estimated_bytes": total, "estimated_mb": round(total / (1024 * 1024), 2),
-            "table_sizes": sizes, "max_mb": MAX_PAYLOAD_MB, "max_render_storage_mb": MAX_RENDER_STORAGE_MB,
-            "storage_budget_status": "ok" if total < MAX_RENDER_STORAGE_BYTES else "blocked",
-            "metadata_only": RENDER_METADATA_ONLY, "governance": "active",
-            "governance_info": "Render stores metadata only. All files remain local."}
-
-# --- HEALTH CHECK (for Render cold start detection) ---
+# --- HEALTH CHECK ---
 @app.get("/api/health")
 async def health_check(db: Session = Depends(get_db)):
     try:
@@ -487,10 +166,13 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
 
-# --- KEEP-ALIVE BACKGROUND TASK (prevents Render free-tier spin-down) ---
-KEEP_ALIVE_URL = "https://ashray-backend-2nt7.onrender.com/api/health"
+# --- KEEP-ALIVE BACKGROUND TASK (prevents server spin-down on free-tier hosts) ---
+KEEP_ALIVE_URL = os.getenv("KEEP_ALIVE_URL", "")
 
 async def keep_alive():
+    if not KEEP_ALIVE_URL:
+        logger.info("⏸️ Keep-alive disabled (KEEP_ALIVE_URL not configured)")
+        return
     while True:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -512,9 +194,8 @@ async def startup_event():
 
 # --- HELPER FOR GENERIC CRUD ---
 async def generic_upsert(request: Request, model, db: Session):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json())
+        data = await request.json()
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -534,9 +215,8 @@ async def generic_upsert(request: Request, model, db: Session):
     return {"status": "success", "id": item_id}
 
 async def generic_bulk_upsert(request: Request, model, db: Session):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list")
         
@@ -592,7 +272,6 @@ def get_all_docs(db: Session = Depends(get_db)):
             "loanId": d.loanId,
             "kissanId": d.kissanId,
             "staffId": d.staffId,
-            "transactionId": d.transactionId,
             "category": d.category,
             "category_id": d.category_id,
             "folder_id": d.folder_id,
@@ -614,21 +293,19 @@ def get_all_docs(db: Session = Depends(get_db)):
     for d in old_docs:
         if d.data is None or d.id in migrated_ids:
             continue
-        all_docs.append(strip_binary_deep(d.data))
+        all_docs.append(d.data)
     return all_docs
 
 @app.post("/api/doc/upsert")
 @app.post("/api/documents")
 async def upsert_doc(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json()) if RENDER_METADATA_ONLY else await request.json()
+        data = await request.json()
     except Exception:
         return await upload_document_v2(request, db)
     if data.get("type") == "virtual" or data.get("is_virtual"):
         doc_id = data.get("id") or f"doc_{int(datetime.utcnow().timestamp())}"
         data["id"] = doc_id
-        data = strip_binary_deep(data)
         existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
         if existing:
             existing.data = data
@@ -640,7 +317,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     now = datetime.utcnow().isoformat()
     if existing:
-        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
+        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = now
@@ -654,7 +331,6 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             loanId=data.get("loanId"),
             kissanId=data.get("kissanId"),
             staffId=data.get("staffId"),
-            transactionId=data.get("transactionId"),
             category=data.get("category"),
             category_id=data.get("category_id"),
             folder_id=data.get("folder_id"),
@@ -663,7 +339,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
         ))
         db.commit()
     # Handle fileData base64: save to disk if present
-    file_data_raw = None if RENDER_METADATA_ONLY else data.get("fileData")
+    file_data_raw = data.get("fileData")
     if file_data_raw and isinstance(file_data_raw, str) and len(file_data_raw) > 100:
         try:
             import base64
@@ -695,18 +371,16 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             logger.error(f"Failed to save fileData for doc {doc_id}: {e}")
     return {
         "id": doc_id, "name": data.get("name") or doc_id, "file_name": data.get("file_name") or doc_id,
-        "clientId": data.get("clientId"), "transactionId": data.get("transactionId"),
-        "fileData": None, "category": data.get("category"),
+        "clientId": data.get("clientId"), "fileData": None, "category": data.get("category"),
         "type": "file", "date": data.get("date"),
     }
 
 @app.patch("/api/files/{doc_id}")
 async def patch_doc(doc_id: str, request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    data = strip_binary_deep(await request.json())
+    data = await request.json()
     existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
     if existing:
-        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date", "original_name"]:
+        for field in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = datetime.utcnow().isoformat()
@@ -779,12 +453,11 @@ async def upload_document_v2(request: Request, db: Session = Depends(get_db)):
         compression_ratio=str(cr["compression_ratio"]) if cr.get("compression_ratio") else None,
         is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
         clientId=form.get("clientId"), category_id=form.get("category_id"), folder_id=form.get("folder_id"),
-        transactionId=form.get("transactionId"),
         date=datetime.utcnow().strftime("%Y-%m-%d"), created_at=now, updated_at=now, is_virtual=0,
     )
     db.add(doc); db.commit()
     return {"id": doc.id, "name": doc.original_name, "file_name": doc.original_name,
-            "clientId": doc.clientId, "transactionId": doc.transactionId, "type": "file", "date": doc.date,
+            "clientId": doc.clientId, "type": "file", "date": doc.date,
             "mime_type": doc.mime_type, "size": doc.size, "fileData": None}
 
 @app.delete("/api/trash/empty")
@@ -812,8 +485,7 @@ def duplicate_file(doc_id: str, db: Session = Depends(get_db)):
             sha256_hash=existing.sha256_hash, compression_ratio=existing.compression_ratio,
             is_compressed=existing.is_compressed, preview_ready=existing.preview_ready,
             clientId=existing.clientId, investorId=existing.investorId, loanId=existing.loanId,
-            kissanId=existing.kissanId, staffId=existing.staffId, transactionId=existing.transactionId,
-            category=existing.category,
+            kissanId=existing.kissanId, staffId=existing.staffId, category=existing.category,
             category_id=existing.category_id, folder_id=existing.folder_id, date=existing.date,
             created_at=now, updated_at=now, is_virtual=existing.is_virtual,
         )
@@ -830,9 +502,8 @@ def duplicate_file(doc_id: str, db: Session = Depends(get_db)):
 # --- PROPERTY ENDPOINTS ---
 @app.post("/api/property/upsert")
 async def upsert_property(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json())
+        data = await request.json()
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -858,9 +529,8 @@ def get_all_properties(db: Session = Depends(get_db)):
 
 @app.post("/api/property/bulk-upsert")
 async def bulk_upsert_properties(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of properties")
         
@@ -889,188 +559,11 @@ def delete_property(prop_id: str, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "deleted"}
 
-# --- STAFF ENDPOINTS ---
-@app.post("/api/staff/upsert")
-async def upsert_staff(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    try:
-        data = strip_binary_deep(await request.json())
-    except Exception as e:
-        logger.error(f"Failed to parse JSON body: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    staff_id = data.get("id")
-    if not staff_id:
-        raise HTTPException(status_code=400, detail="Staff ID missing")
-    
-    existing = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
-    if existing:
-        existing.data = data
-    else:
-        new_staff = StaffModel(id=staff_id, data=data)
-        db.add(new_staff)
-    
-    db.commit()
-    return {"status": "success", "id": staff_id}
-
-@app.get("/api/staff/all")
-def get_all_staff(db: Session = Depends(get_db)):
-    staff_list = db.query(StaffModel).all()
-    return [s.data for s in staff_list if s.data is not None]
-
-@app.post("/api/staff/bulk-upsert")
-async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    try:
-        data_list = strip_binary_deep(await request.json())
-        if not isinstance(data_list, list):
-            raise HTTPException(status_code=400, detail="Expected a list of staff")
-        
-        for data in data_list:
-            staff_id = data.get("id")
-            if not staff_id: continue
-            existing = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
-            if existing:
-                existing.data = data
-            else:
-                db.add(StaffModel(id=staff_id, data=data))
-        db.commit()
-        return {"status": "success", "count": len(data_list)}
-    except Exception as e:
-        logger.error(f"Staff Bulk Upsert Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/staff/delete/{staff_id}")
-def delete_staff(staff_id: str, db: Session = Depends(get_db)):
-    if not staff_id:
-        raise HTTPException(status_code=400, detail="Staff ID missing")
-        
-    staff = db.query(StaffModel).filter(StaffModel.id == staff_id).first()
-    if staff:
-        db.delete(staff)
-        db.commit()
-    return {"status": "deleted"}
-
-# --- APPLICATION ENDPOINTS ---
-@app.post("/api/application/upsert")
-async def upsert_application(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    try:
-        data = strip_binary_deep(await request.json())
-    except Exception as e:
-        logger.error(f"Failed to parse JSON body: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    app_id = data.get("id")
-    if not app_id:
-        raise HTTPException(status_code=400, detail="Application ID missing")
-    
-    existing = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
-    if existing:
-        existing.data = data
-    else:
-        new_app = ApplicationModel(id=app_id, data=data)
-        db.add(new_app)
-    
-    db.commit()
-    return {"status": "success", "id": app_id}
-
-@app.get("/api/application/all")
-def get_all_applications(db: Session = Depends(get_db)):
-    app_list = db.query(ApplicationModel).all()
-    return [a.data for a in app_list if a.data is not None]
-
-@app.post("/api/application/bulk-upsert")
-async def bulk_upsert_application(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    try:
-        data_list = strip_binary_deep(await request.json())
-        if not isinstance(data_list, list):
-            raise HTTPException(status_code=400, detail="Expected a list of applications")
-        
-        for data in data_list:
-            app_id = data.get("id")
-            if not app_id: continue
-            existing = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
-            if existing:
-                existing.data = data
-            else:
-                db.add(ApplicationModel(id=app_id, data=data))
-        db.commit()
-        return {"status": "success", "count": len(data_list)}
-    except Exception as e:
-        logger.error(f"Application Bulk Upsert Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/application/delete/{app_id}")
-def delete_application(app_id: str, db: Session = Depends(get_db)):
-    if not app_id:
-        raise HTTPException(status_code=400, detail="Application ID missing")
-        
-    app = db.query(ApplicationModel).filter(ApplicationModel.id == app_id).first()
-    if app:
-        db.delete(app)
-        db.commit()
-    return {"status": "deleted"}
-
-# --- DOC SERVE & DOWNLOAD ENDPOINTS ---
-@app.get("/api/doc/serve/{doc_id}")
-async def serve_doc(doc_id: str, db: Session = Depends(get_db)):
-    doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
-    if doc:
-        fp = doc.optimized_path or doc.file_path
-        if not fp:
-            raise HTTPException(status_code=404, detail="File not found")
-        content = await read_file(fp)
-        if content is None:
-            raise HTTPException(status_code=404, detail="File not found on disk")
-        return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
-    doc_old = db.query(DocModel).filter(DocModel.id == doc_id).first()
-    if not doc_old or not doc_old.data.get("fileData"):
-        raise HTTPException(status_code=404, detail="File not found")
-    fd = doc_old.data["fileData"]
-    h, e = fd.split(",", 1)
-    d = base64.b64decode(e)
-    return Response(content=d, media_type=h.split(":")[1].split(";")[0])
-
-# --- SETTINGS ENDPOINTS ---
-@app.get("/api/settings")
-def get_settings(db: Session = Depends(get_db)):
-    try:
-        setting = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
-        if setting and setting.data:
-            return setting.data
-        fallback = db.query(SettingsModel).first()
-        if fallback and fallback.data:
-            return fallback.data
-        return {}
-    except Exception as e:
-        logger.error(f"Failed to fetch settings: {str(e)}")
-        return {}
-
-@app.post("/api/settings")
-async def upsert_settings(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
-    try:
-        data = strip_binary_deep(await request.json())
-    except Exception as e:
-        logger.error(f"Failed to parse settings JSON: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-
-    setting = db.query(SettingsModel).filter(SettingsModel.id == "main").first()
-    if setting:
-        setting.data = data
-    else:
-        db.add(SettingsModel(id="main", data=data))
-    db.commit()
-    return {"status": "success"}
-
 # --- CLIENT ENDPOINTS ---
 @app.post("/api/client/upsert")
 async def upsert_client(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json())
+        data = await request.json()
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -1096,9 +589,8 @@ def get_all_clients(db: Session = Depends(get_db)):
 
 @app.post("/api/client/bulk-upsert")
 async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of clients")
         
@@ -1119,9 +611,8 @@ async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
 # --- REFERRAL ENDPOINTS ---
 @app.post("/api/referral/upsert")
 async def upsert_referral(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json())
+        data = await request.json()
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -1147,9 +638,8 @@ def get_all_referrals(db: Session = Depends(get_db)):
 
 @app.post("/api/referral/bulk-upsert")
 async def bulk_upsert_referrals(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of referrals")
         logger.info(f"Bulk Upsert Referrals: Received {len(data_list)} items")
@@ -1193,28 +683,18 @@ def cleanup_report_docs(db: Session = Depends(get_db)):
 
 @app.post("/api/doc/bulk-upsert")
 async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        raw_list = await request.json()
-        if not isinstance(raw_list, list):
+        data_list = await request.json()
+        if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of docs")
-        data_list = []
-        for item in raw_list:
-            if item.get("category") == "RECEIPT":
-                data_list.append(item)
-            elif RENDER_METADATA_ONLY:
-                data_list.append(strip_binary_deep(item))
-            else:
-                data_list.append(item)
         logger.info(f"Bulk Upsert Docs: Received {len(data_list)} items")
         for data in data_list:
             doc_id = data.get("id")
             if not doc_id: continue
             if data.get("type") == "virtual" or data.get("is_virtual"):
                 existing = db.query(DocModel).filter(DocModel.id == doc_id).first()
-                safe_data = strip_binary_deep(data)
-                if existing: existing.data = safe_data
-                else: db.add(DocModel(id=doc_id, data=safe_data))
+                if existing: existing.data = data
+                else: db.add(DocModel(id=doc_id, data=data))
                 continue
             fdb64 = data.get("fileData")
             if fdb64 and isinstance(fdb64, str) and fdb64.startswith("data:"):
@@ -1238,7 +718,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         "preview_ready": 1 if cr["preview_ready"] else 0,
                         "compression_ratio": str(cr["compression_ratio"]) if cr.get("compression_ratio") else None}.items():
                         setattr(existing, k, v)
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
@@ -1252,7 +732,6 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
-                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now, is_virtual=0,
                     ))
@@ -1262,7 +741,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 now = datetime.utcnow().isoformat()
                 existing = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
                 if existing:
-                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "transactionId", "category", "category_id", "folder_id", "date", "original_name"]:
+                    for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
                 else:
@@ -1270,7 +749,6 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
                         clientId=data.get("clientId"), investorId=data.get("investorId"),
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
-                        transactionId=data.get("transactionId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now,
                         mime_type=data.get("mime_type"), is_virtual=0,
@@ -1431,7 +909,6 @@ async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get
                 is_compressed=1 if cr["is_compressed"] else 0, preview_ready=1 if cr["preview_ready"] else 0,
                 clientId=dd.get("clientId"), investorId=dd.get("investorId"),
                 loanId=dd.get("loanId"), kissanId=dd.get("kissanId"), staffId=dd.get("staffId"),
-                transactionId=dd.get("transactionId"),
                 category=dd.get("category"), category_id=dd.get("category_id"), folder_id=dd.get("folder_id"),
                 date=dd.get("date"), created_at=dd.get("created_at") or now, updated_at=now, is_virtual=0,
             )
@@ -1484,9 +961,8 @@ async def migrate_docs_to_filesystem(request: Request, db: Session = Depends(get
 # --- TRANSACTION ENDPOINTS ---
 @app.post("/api/transaction/upsert")
 async def upsert_transaction(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data = strip_binary_deep(await request.json())
+        data = await request.json()
     except Exception as e:
         logger.error(f"❌ Failed to parse JSON body: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
@@ -1512,9 +988,8 @@ def get_all_transactions(db: Session = Depends(get_db)):
 
 @app.post("/api/transaction/bulk-upsert")
 async def bulk_upsert_transactions(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list of transactions")
         
@@ -1550,9 +1025,8 @@ def get_all_pending_receipts(db: Session = Depends(get_db)):
 
 @app.post("/api/pending-receipt/bulk-upsert")
 async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(get_db)):
-    enforce_render_storage_budget(db)
     try:
-        data_list = strip_binary_deep(await request.json())
+        data_list = await request.json()
         if not isinstance(data_list, list):
             raise HTTPException(status_code=400, detail="Expected a list")
         for data in data_list:
@@ -1566,68 +1040,6 @@ async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(g
     except Exception as e:
         logger.error(f"Pending Receipt Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- MARKET UPDATES ENDPOINTS ---
-@app.get("/api/market-updates/all")
-def get_all_market_updates(db: Session = Depends(get_db)):
-    items = db.query(MarketUpdateModel).all()
-    return [i.data for i in items if i.data is not None]
-
-@app.get("/api/market-updates")
-def get_market_updates(propertyId: str = None, db: Session = Depends(get_db)):
-    items = db.query(MarketUpdateModel).all()
-    result = [i.data for i in items if i.data is not None]
-    if propertyId:
-        result = [r for r in result if r.get("propertyId") == propertyId]
-    return result
-
-@app.post("/api/market-updates/upsert")
-async def upsert_market_update(request: Request, db: Session = Depends(get_db)):
-    return await generic_upsert(request, MarketUpdateModel, db)
-
-@app.post("/api/market-updates/bulk-upsert")
-async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get_db)):
-    return await generic_bulk_upsert(request, MarketUpdateModel, db)
-
-@app.delete("/api/market-updates/delete/{item_id}")
-def delete_market_update(item_id: str, db: Session = Depends(get_db)):
-    item = db.query(MarketUpdateModel).filter(MarketUpdateModel.id == item_id).first()
-    if item:
-        db.delete(item)
-        db.commit()
-    return {"status": "deleted"}
-
-# --- ACTIVE BACKEND DISCOVERY ---
-# Returns list of registered local machines that have sent a heartbeat recently.
-# Website uses this to discover the local backend when it's online.
-@app.get("/api/active-backend")
-async def get_active_backend(companyId: str = None, db: Session = Depends(get_db)):
-    from datetime import timedelta
-    threshold = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
-    q = db.query(CloudMachineModel).filter(
-        CloudMachineModel.status == "Online",
-        CloudMachineModel.lastHeartbeat >= threshold
-    )
-    if companyId:
-        q = q.filter(CloudMachineModel.companyId == companyId)
-    machines = q.order_by(CloudMachineModel.lastHeartbeat.desc()).all()
-    if not machines:
-        return {"available": False, "machines": []}
-    return {
-        "available": True,
-        "machines": [
-            {
-                "machineId": m.machineId,
-                "name": m.name,
-                "lanIP": m.lanIP,
-                "port": m.port,
-                "status": m.status,
-                "isActiveRelay": bool(m.isActiveRelay),
-                "lastHeartbeat": m.lastHeartbeat,
-            }
-            for m in machines
-        ],
-    }
 
 # --- UNIFIED LOGIN ENDPOINT ---
 @app.post("/api/auth/login")
@@ -1679,12 +1091,11 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         DocumentModel.clientId == client_id, DocumentModel.is_deleted == 0
                     ).all()
                     all_docs_old = db.query(DocModel).all()
-                    c["docs"] = [strip_binary_deep(d.data) for d in all_docs_old if d.data and d.data.get("clientId") == client_id]
+                    c["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("clientId") == client_id]
                     for d in all_docs_new:
                         c["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
                             "clientId": d.clientId, "category": d.category, "type": "file",
-                            "transactionId": d.transactionId,
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
                             "has_file": True, "fileData": None,
                         })
@@ -1740,12 +1151,11 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                         DocumentModel.investorId == investor_id, DocumentModel.is_deleted == 0
                     ).all()
                     all_docs_old = db.query(DocModel).all()
-                    i["docs"] = [strip_binary_deep(d.data) for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
+                    i["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
                     for d in all_docs_new:
                         i["docs"].append({
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
                             "investorId": d.investorId, "category": d.category, "type": "file",
-                            "transactionId": d.transactionId,
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
                             "has_file": True, "fileData": None,
                         })
