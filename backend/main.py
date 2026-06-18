@@ -1046,8 +1046,24 @@ async def bulk_upsert_pending_receipts(request: Request, db: Session = Depends(g
 async def unified_login(request: Request, db: Session = Depends(get_db)):
     try:
         data = await request.json()
-        login_id = data.get("username")
+        login_id = str(data.get("username") or "").strip()
         password = data.get("password")
+        normalized_login = login_id.lower()
+        login_digits = "".join(ch for ch in login_id if ch.isdigit())
+
+        def matches_login(value):
+            if value is None:
+                return False
+            candidate = str(value).strip()
+            candidate_digits = "".join(ch for ch in candidate if ch.isdigit())
+            return (
+                candidate.lower() == normalized_login or
+                (login_digits and candidate_digits and (
+                    candidate_digits == login_digits or
+                    candidate_digits.endswith(login_digits) or
+                    login_digits.endswith(candidate_digits)
+                ))
+            )
 
         logger.info(f"🔐 Login attempt: {login_id}")
 
@@ -1064,11 +1080,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
             if not isinstance(c, dict):
                 continue
 
-            if (
-                c.get("username") == login_id or
-                c.get("phone") == login_id or
-                c.get("name") == login_id
-            ):
+            if matches_login(c.get("username")) or matches_login(c.get("phone")) or matches_login(c.get("email")) or matches_login(c.get("name")):
                 if c.get("password") == password:
                     client_id = c.get("id")
 
@@ -1131,11 +1143,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
             if not isinstance(i, dict):
                 continue
 
-            if (
-                i.get("username") == login_id or
-                i.get("phone") == login_id or
-                i.get("email") == login_id
-            ):
+            if matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
                 if i.get("password") == password:
                     investor_id = i.get("id")
 
