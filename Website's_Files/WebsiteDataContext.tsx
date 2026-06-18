@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
-import { Property, Agent, AgentApplication, Client, Lead, ClientInvestment, Referral } from '../types';
+import { Property, Agent, AgentApplication, Client, Lead, ClientInvestment, Referral, Staff } from '../types';
 import { PROPERTIES, AGENTS, CLIENTS, LEADS } from '../constants';
 import { generateMetadata } from '../utils/metadataGenerator';
 import { notifyNewLead } from "../leadNotifier";
@@ -8,7 +8,121 @@ import { runSeoAudit } from "../utils/seoAudit";
 import { calculateAdvancedScore } from "../utils/scoreEngine";
 import { metadataToSnapshot } from "../utils/metadataGenerator";
 import { runFullSeoCrawl } from "../seo-manager/engine/seoRunner";
-import { fetchProperties, savePropertyToAPI } from "../services/api";
+import { getBackendUrl } from '../utils/backendUrl';
+
+// --- Backend Discovery ---
+// Priority: 1) settings.backendUrl (from website admin), 2) local machine discovery
+// Caches result in localStorage for 5 minutes.
+let _cachedBackendUrl: string | null = null;
+let _cacheExpiry = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getSettingsBackendUrl(): string {
+  try {
+    const raw = localStorage.getItem('ashray_settings');
+    if (raw) {
+      const settings = JSON.parse(raw);
+      if (settings?.backendUrl) return settings.backendUrl;
+    }
+  } catch {}
+  return getBackendUrl();
+}
+
+export async function resolveBackendUrl(): Promise<string> {
+  const now = Date.now();
+  if (_cachedBackendUrl && now < _cacheExpiry) return _cachedBackendUrl;
+
+  // Check localStorage cache
+  try {
+    const cached = JSON.parse(localStorage.getItem('backend_discovery') || 'null');
+    if (cached && cached.url && cached.expiresAt > now) {
+      _cachedBackendUrl = cached.url;
+      _cacheExpiry = cached.expiresAt;
+      return cached.url;
+    }
+  } catch {}
+
+  // 1) Check if admin configured a backend URL in website settings
+  const settingsUrl = getSettingsBackendUrl().replace(/\/$/, '');
+  const localCandidates = ['http://localhost:8000', 'http://127.0.0.1:8000'];
+
+  // Electron/dev usage often has the API on the same machine, but the VPS may not
+  // know about it yet. Prefer a healthy local backend before falling back to VPS.
+  for (const localUrl of localCandidates) {
+    try {
+      const healthCtrl = new AbortController();
+      const healthTimeout = setTimeout(() => healthCtrl.abort(), 1000);
+      const healthRes = await fetch(`${localUrl}/api/health`, { signal: healthCtrl.signal });
+      clearTimeout(healthTimeout);
+      if (healthRes.ok) {
+        _cachedBackendUrl = localUrl;
+        _cacheExpiry = now + CACHE_TTL;
+        localStorage.setItem('backend_discovery', JSON.stringify({ url: localUrl, source: 'local', expiresAt: _cacheExpiry }));
+        return localUrl;
+      }
+    } catch {}
+  }
+
+  // 2) Try to discover a local machine via the configured backend
+  const discoveryServer = settingsUrl;
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(`${discoveryServer}/api/active-backend`, { signal: ctrl.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.available && data.machines?.length > 0) {
+        const machine = data.machines[0];
+        const localUrl = `http://${machine.lanIP}:${machine.port}`;
+        try {
+          const healthCtrl = new AbortController();
+          const healthTimeout = setTimeout(() => healthCtrl.abort(), 3000);
+          const healthRes = await fetch(`${localUrl}/api/health`, { signal: healthCtrl.signal });
+          clearTimeout(healthTimeout);
+          if (healthRes.ok) {
+            _cachedBackendUrl = localUrl;
+            _cacheExpiry = now + CACHE_TTL;
+            localStorage.setItem('backend_discovery', JSON.stringify({ url: localUrl, source: 'relay', expiresAt: _cacheExpiry }));
+            console.log(`🔗 Discovered local backend: ${localUrl}`);
+            return localUrl;
+          }
+        } catch { /* local machine unreachable */ }
+      }
+    }
+  } catch { /* discovery server unavailable */ }
+
+  // 3) Fallback: use settings URL if configured, otherwise empty (no backend)
+  const fallback = settingsUrl || '';
+  _cachedBackendUrl = fallback;
+  _cacheExpiry = now + CACHE_TTL;
+  if (fallback) {
+    localStorage.setItem('backend_discovery', JSON.stringify({ url: fallback, source: 'settings', expiresAt: _cacheExpiry }));
+  }
+  return fallback;
+}
+
+// Force-refresh the backend discovery cache (e.g. after sync completes)
+export function invalidateBackendUrl() {
+  _cachedBackendUrl = null;
+  _cacheExpiry = 0;
+  localStorage.removeItem('backend_discovery');
+}
+
+async function savePropertyToAPI(property: any): Promise<any> {
+  try {
+    const backendUrl = await resolveBackendUrl();
+    const res = await fetch(`${backendUrl}/api/property/upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(property),
+    });
+    if (!res.ok) return null;
+    return property;
+  } catch {
+    return null;
+  }
+}
 
 type SearchEntityType =
   | "property"
@@ -34,10 +148,13 @@ interface DataContextType {
   clients: Client[];
   investors: any[];
   docs: any[];
+  marketUpdates: any[];
+  staff: Staff[];
   leads: Lead[];
   referrals: Referral[];
   transactions: any[];
   pendingReceipts: any[];
+  settings: any;
   blogs: BlogPost[];
   legalPages: BlogPost[];
   getLegalPage: (type: LegalPageType) => BlogPost | undefined;
@@ -110,6 +227,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
 
   const [pendingReceipts, setPendingReceipts] = useState<any[]>([]);
+  const [marketUpdates, setMarketUpdates] = useState<any[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [settings, setSettings] = useState<any>(null);
   const [referrals, setReferrals] = useState<Referral[]>(() => {
     const saved = localStorage.getItem("referrals");
     return saved ? JSON.parse(saved) : [];
@@ -340,47 +460,65 @@ const getLegalPage = useCallback((type: LegalPageType) => {
 }, [blogs]);
 
 
+  const safeSetItem = (key: string, value: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e: any) {
+      if (e.name === 'QuotaExceededError') {
+        console.warn(`localStorage quota exceeded for "${key}". Data will not be cached.`);
+      }
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem("agents", JSON.stringify(agents));
+    safeSetItem("agents", agents);
   }, [agents]);
 
   useEffect(() => {
-    localStorage.setItem("applications", JSON.stringify(applications));
+    safeSetItem("applications", applications);
   }, [applications]);
 
   useEffect(() => {
-    localStorage.setItem("clients", JSON.stringify(clients));
+    safeSetItem("clients", clients);
   }, [clients]);
 
   useEffect(() => {
-    localStorage.setItem("leads", JSON.stringify(leads));
+    safeSetItem("leads", leads);
   }, [leads]);
 
   useEffect(() => {
-    localStorage.setItem("referrals", JSON.stringify(referrals));
+    safeSetItem("referrals", referrals);
   }, [referrals]);
 
   useEffect(() => {
-    localStorage.setItem("investors", JSON.stringify(investors));
+    safeSetItem("investors", investors);
   }, [investors]);
 
   useEffect(() => {
     try {
-      localStorage.setItem("docs", JSON.stringify(docs.map((d: any) => {
-        const { fileData, ...rest } = d;
-        return rest;
-      })));
+      resolveBackendUrl().then(backendUrl => {
+        safeSetItem("docs", docs.map((d: any) => {
+          const { fileData, ...rest } = d;
+          return {
+            ...rest,
+            serveUrl: `${backendUrl}/api/doc/serve/${encodeURIComponent(d.id)}`,
+          };
+        }));
+      });
     } catch {}
   }, [docs]);
 
   useEffect(() => {
-  localStorage.setItem("blogs", JSON.stringify(blogs));
+    safeSetItem("blogs", blogs);
   }, [blogs]);
 
   // 🔥 PULL FROM CLOUD — Manual trigger (login or "Pull from Cloud" button)
   const pullFromCloud = useCallback(async () => {
-    const BACKEND_URL = 'https://ashray-backend-2nt7.onrender.com';
+    const BACKEND_URL = await resolveBackendUrl();
     const results: string[] = [];
+    if (!BACKEND_URL) {
+      throw new Error('No backend URL configured or discovered.');
+    }
     try {
       const fetches = await Promise.allSettled([
         fetch(`${BACKEND_URL}/api/property/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
@@ -390,9 +528,11 @@ const getLegalPage = useCallback((type: LegalPageType) => {
         fetch(`${BACKEND_URL}/api/doc/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
         fetch(`${BACKEND_URL}/api/referral/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
         fetch(`${BACKEND_URL}/api/pending-receipt/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
+        fetch(`${BACKEND_URL}/api/market-updates/all`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
+        fetch(`${BACKEND_URL}/api/settings`).then(async r => { if (r.ok) return r.json(); throw new Error(r.statusText); }),
       ]);
 
-      const [propRes, clientRes, txRes, investorRes, docRes, refRes, prRes] = fetches.map(r => r.status === 'fulfilled' ? r.value : null);
+      const [propRes, clientRes, txRes, investorRes, docRes, refRes, prRes, muRes, settingsRes] = fetches.map(r => r.status === 'fulfilled' ? r.value : null);
 
       console.log("☁️ Pull from cloud:", {
         props: Array.isArray(propRes) ? propRes.length : 'FAILED',
@@ -403,7 +543,30 @@ const getLegalPage = useCallback((type: LegalPageType) => {
         referrals: Array.isArray(refRes) ? refRes.length : 'FAILED'
       });
 
-      if (Array.isArray(propRes)) setProperties(propRes);
+      if (Array.isArray(propRes)) {
+        const enriched = propRes.map((p: any) => {
+          const current = p.seo || {};
+          if (!current.metaTitle || current.metaTitle === p.title) {
+            const seo = generateMetadata({
+              title: p.title,
+              locality: p.locality,
+              type: p.type,
+              size: p.plotSize,
+              approval: p.approval,
+              id: p.id,
+              price: p.price
+            });
+            return { ...p, seo: { ...seo, slug: current.slug || seo.slug } };
+          }
+          return p;
+        });
+        setProperties(prev => {
+          const map = new Map(prev.map(p => [p.id, p]));
+          enriched.forEach((p: any) => map.set(p.id, p));
+          return Array.from(map.values());
+        });
+        results.push(`${propRes.length} properties`);
+      }
       if (Array.isArray(clientRes)) {
         setClients(prev => {
           const map = new Map(prev.map(c => [c.id, c]));
@@ -438,17 +601,178 @@ const getLegalPage = useCallback((type: LegalPageType) => {
         results.push(`${refRes.length} referrals`);
       }
       if (Array.isArray(prRes)) { setPendingReceipts(prRes); results.push(`${prRes.length} pending receipts`); }
+      if (Array.isArray(muRes)) { setMarketUpdates(muRes); results.push(`${muRes.length} market updates`); }
+      if (Array.isArray(propRes)) {
+        const [staffRes, appRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/staff/all`).then(r => r.ok ? r.json() : []),
+          fetch(`${BACKEND_URL}/api/application/all`).then(r => r.ok ? r.json() : []),
+        ]);
+        if (Array.isArray(staffRes)) {
+          setStaff(staffRes);
+          results.push(`${staffRes.length} staff`);
+          setAgents(prev => {
+            const map = new Map(prev.map(a => [a.id, a]));
+            for (const s of staffRes) {
+              if (s.syncToAgent) {
+                const photoDoc = s.documents?.find((d: any) => d.type === 'Photo');
+                map.set(s.id, {
+                  ...map.get(s.id),
+                  id: s.id,
+                  name: s.name,
+                  email: s.email || '',
+                  phone: s.phone || '',
+                  username: s.username || '',
+                  password: s.password || '',
+                  role: s.websiteRole || s.role || 'Field Agent',
+                  permissions: s.permissions || [],
+                  photo: photoDoc?.fileData || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.name)}&background=random`,
+                  experience: s.experience || '',
+                  status: 'Active',
+                  territory: s.placeOfPosting || s.officeLocality || '',
+                  performance: { leadsHandled: 0, siteVisits: 0, closures: 0, rating: 5 },
+                  dateJoined: s.joiningDate || '',
+                  listings: [],
+                  about: '',
+                });
+              }
+            }
+            return Array.from(map.values());
+          });
+        }
+        if (Array.isArray(appRes)) {
+          setApplications(appRes);
+          results.push(`${appRes.length} applications`);
+        }
+      }
+      if (settingsRes) { setSettings(settingsRes); results.push('settings'); }
     } catch (err) {
       console.log("⚠️ Pull from cloud failed:", err);
+      throw err;
     } finally {
       setIsHydrated(true);
     }
     return results;
   }, []);
 
-  // Only hydrate from localStorage on first load (no backend fetch)
+  // Hydrate on first load — fetch properties + staff + applications from backend
   useEffect(() => {
-    setIsHydrated(true);
+    const init = async () => {
+      try {
+        const BACKEND_URL = await resolveBackendUrl();
+        const [propRes, staffRes, appRes, settingsRes] = await Promise.allSettled([
+          fetch(`${BACKEND_URL}/api/property/all`).then(r => r.ok ? r.json() : []),
+          fetch(`${BACKEND_URL}/api/staff/all`).then(r => r.ok ? r.json() : []),
+          fetch(`${BACKEND_URL}/api/application/all`).then(r => r.ok ? r.json() : []),
+          fetch(`${BACKEND_URL}/api/settings`).then(r => r.ok ? r.json() : null),
+        ]);
+        if (propRes.status === 'fulfilled' && Array.isArray(propRes.value)) {
+          const enriched = propRes.value.map((p: any) => {
+            const current = p.seo || {};
+            if (!current.metaTitle || current.metaTitle === p.title) {
+              const seo = generateMetadata({
+                title: p.title,
+                locality: p.locality,
+                type: p.type,
+                size: p.plotSize,
+                approval: p.approval,
+                id: p.id,
+                price: p.price
+              });
+              return { ...p, seo: { ...seo, slug: current.slug || seo.slug } };
+            }
+            return p;
+          });
+          setProperties(enriched);
+        }
+        if (settingsRes.status === 'fulfilled' && settingsRes.value) {
+          setSettings(settingsRes.value);
+        }
+        if (staffRes.status === 'fulfilled' && Array.isArray(staffRes.value)) {
+          setStaff(staffRes.value);
+          setAgents(prev => {
+            const map = new Map(prev.map(a => [a.id, a]));
+            for (const s of staffRes.value) {
+              if (s.syncToAgent) {
+                const photoDoc = s.documents?.find((d: any) => d.type === 'Photo');
+                map.set(s.id, {
+                  ...map.get(s.id),
+                  id: s.id,
+                  name: s.name,
+                  email: s.email || '',
+                  phone: s.phone || '',
+                  username: s.username || '',
+                  password: s.password || '',
+                  role: s.websiteRole || s.role || 'Field Agent',
+                  permissions: s.permissions || [],
+                  photo: photoDoc?.fileData || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.name)}&background=random`,
+                  experience: s.experience || '',
+                  status: 'Active',
+                  territory: s.placeOfPosting || s.officeLocality || '',
+                  performance: { leadsHandled: 0, siteVisits: 0, closures: 0, rating: 5 },
+                  dateJoined: s.joiningDate || '',
+                  listings: [],
+                  about: '',
+                });
+              }
+            }
+            return Array.from(map.values());
+          });
+        }
+        if (appRes.status === 'fulfilled' && Array.isArray(appRes.value)) {
+          setApplications(appRes.value);
+        }
+      } catch {
+        // offline safe
+      } finally {
+        setIsHydrated(true);
+      }
+    };
+    init();
+  }, []);
+
+  // Poll receipt status, receipt documents, and application status so they reflect after ledger sync.
+  useEffect(() => {
+    let currentBackendUrl: string | null = null;
+    const poll = async () => {
+      try {
+        // Re-resolve backend URL periodically (every 5 polls = ~75 seconds)
+        if (!currentBackendUrl || Date.now() % (CACHE_TTL) < 15000) {
+          currentBackendUrl = await resolveBackendUrl();
+        }
+        const BACKEND_URL = currentBackendUrl;
+        const [pendingResult, docsResult, appResult] = await Promise.allSettled([
+          fetch(`${BACKEND_URL}/api/pending-receipt/all`),
+          fetch(`${BACKEND_URL}/api/doc/all`),
+          fetch(`${BACKEND_URL}/api/application/all`),
+        ]);
+
+        if (pendingResult.status === 'fulfilled' && pendingResult.value.ok) {
+          const pendingData = await pendingResult.value.json();
+          if (Array.isArray(pendingData)) setPendingReceipts(pendingData);
+        }
+
+        if (docsResult.status === 'fulfilled' && docsResult.value.ok) {
+          const docsData = await docsResult.value.json();
+          if (Array.isArray(docsData)) {
+            setDocs(prev => {
+              const map = new Map(prev.map((d: any) => [d.id, d]));
+              docsData.forEach((d: any) => map.set(d.id, d));
+              return Array.from(map.values());
+            });
+          }
+        }
+
+        if (appResult.status === 'fulfilled' && appResult.value.ok) {
+          const appData = await appResult.value.json();
+          if (Array.isArray(appData)) {
+            setApplications(appData);
+          }
+        }
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
   }, []);
 
   // --- ACTIONS WITH MEMOIZATION ---
@@ -673,7 +997,12 @@ savePropertyToAPI(next)
     }));
   }, []);
   
-  const deleteProperty = useCallback((id: string) => setProperties(prev => prev.filter(p => p.id !== id)), []);
+  const deleteProperty = useCallback(async (id: string) => {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/property/delete/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .catch(() => {});
+    setProperties(prev => prev.filter(p => p.id !== id));
+  }, []);
 
   const incrementPropertyView = useCallback((id: string) => {
     setProperties(prev => prev.map(p => 
@@ -687,9 +1016,30 @@ savePropertyToAPI(next)
   }, []);
   const deleteAgent = useCallback((id: string) => setAgents(prev => prev.filter(a => a.id !== id)), []);
 
-  const addApplication = useCallback((application: AgentApplication) => setApplications(prev => [...prev, application]), []);
-  const updateApplicationStatus = useCallback((id: string, status: 'approved' | 'rejected') => {
-    setApplications(prev => prev.map(app => app.id === id ? { ...app, status } : app));
+  const addApplication = useCallback(async (application: AgentApplication) => {
+    setApplications(prev => [...prev, application]);
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/application/bulk-upsert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([application]),
+    }).catch(() => {});
+  }, []);
+  const updateApplicationStatus = useCallback(async (id: string, status: 'approved' | 'rejected') => {
+    setApplications(prev => {
+      const app = prev.find(a => a.id === id);
+      if (app) {
+        const updated = { ...app, status };
+        resolveBackendUrl().then(backendUrl => {
+          fetch(`${backendUrl}/api/application/bulk-upsert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify([updated]),
+          }).catch(err => console.error('[DataContext] updateApplicationStatus sync failed:', err));
+        });
+      }
+      return prev.map(a => a.id === id ? { ...a, status } : a);
+    });
   }, []);
   const removeApplication = useCallback((id: string) => setApplications(prev => prev.filter(app => app.id !== id)), []);
 
@@ -783,58 +1133,66 @@ const updateLead = useCallback((id: string, updates: Partial<Lead>) => {
 
   const deleteLead = useCallback((id: string) => setLeads(prev => prev.filter(l => l.id !== id)), []);
 
-  const addClient = useCallback((client: Client) => {
+  const addClient = useCallback(async (client: Client) => {
     setClients(prev => [client, ...prev]);
-    fetch('https://ashray-backend-2nt7.onrender.com/api/client/bulk-upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/client/bulk-upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify([client])
     }).catch(() => {});
   }, []);
-  const updateClient = useCallback((id: string, updates: Partial<Client>) => {
+  const updateClient = useCallback(async (id: string, updates: Partial<Client>) => {
     setClients(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-    fetch('https://ashray-backend-2nt7.onrender.com/api/client/bulk-upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/client/bulk-upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify([{ id, ...updates }])
     }).catch(() => {});
   }, []);
-  const deleteClient = useCallback((id: string) => {
+  const deleteClient = useCallback(async (id: string) => {
     setClients(prev => prev.filter(c => c.id !== id));
-    fetch('https://ashray-backend-2nt7.onrender.com/api/client/bulk-upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/client/bulk-upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify([{ id, is_deleted: true }])
     }).catch(() => {});
   }, []);
 
-  const addReferral = useCallback((referral: Referral) => {
+  const addReferral = useCallback(async (referral: Referral) => {
     setReferrals(prev => [referral, ...prev]);
-    fetch('https://ashray-backend-2nt7.onrender.com/api/referral/upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/referral/upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(referral)
     }).catch(() => {});
   }, []);
-  const updateReferral = useCallback((id: string, updates: Partial<Referral>) => {
+  const updateReferral = useCallback(async (id: string, updates: Partial<Referral>) => {
     setReferrals(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
-    fetch('https://ashray-backend-2nt7.onrender.com/api/referral/upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/referral/upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, ...updates })
     }).catch(() => {});
   }, []);
-  const deleteReferral = useCallback((id: string) => {
+  const deleteReferral = useCallback(async (id: string) => {
     setReferrals(prev => prev.filter(r => r.id !== id));
-    fetch('https://ashray-backend-2nt7.onrender.com/api/referral/upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/referral/upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, is_deleted: true })
     }).catch(() => {});
   }, []);
 
-  const addDoc = useCallback((doc: any) => {
+  const addDoc = useCallback(async (doc: any) => {
+    const { fileData: _fileData, content: _content, preview: _preview, thumbnail: _thumbnail, ...metadataOnlyDoc } = doc || {};
     setDocs(prev => {
-      if (prev.find((existing: any) => existing.id === doc.id)) return prev;
-      return [...prev, doc];
+      if (prev.find((existing: any) => existing.id === metadataOnlyDoc.id)) return prev;
+      return [...prev, metadataOnlyDoc];
     });
-    fetch('https://ashray-backend-2nt7.onrender.com/api/doc/bulk-upsert', {
+    const backendUrl = await resolveBackendUrl();
+    fetch(`${backendUrl}/api/doc/bulk-upsert`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([doc])
+      body: JSON.stringify([metadataOnlyDoc])
     }).catch(() => {});
   }, []);
 
@@ -900,7 +1258,7 @@ const updateLead = useCallback((id: string, updates: Partial<Lead>) => {
 
   return (
     <DataContext.Provider value={{
-      properties, agents, applications, clients, investors, docs, leads, referrals, transactions, pendingReceipts,
+      properties, agents, applications, clients, investors, docs, marketUpdates, staff, leads, referrals, transactions, pendingReceipts, settings,
       blogs, addBlog, updateBlog, deleteBlog,
       addProperty, updateProperty, deleteProperty,
       addAgent, updateAgent, deleteAgent,
