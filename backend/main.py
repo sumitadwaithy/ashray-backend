@@ -151,6 +151,18 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to create tables: {str(e)}")
 
+# Migration: add virtual_data column to documents table if missing
+try:
+    dialect = engine.dialect.name
+    if dialect == "sqlite":
+        engine.execute(text("ALTER TABLE documents ADD COLUMN virtual_data TEXT"))
+        logger.info("✅ Added virtual_data column to documents (SQLite)")
+    else:
+        engine.execute(text("ALTER TABLE documents ADD COLUMN virtual_data JSON"))
+        logger.info("✅ Added virtual_data column to documents (PostgreSQL)")
+except Exception:
+    logger.info("ℹ️ virtual_data column already exists (or not applicable)")
+
 # --- DATABASE ENGINE ---
 def get_db():
     db = SessionLocal()
