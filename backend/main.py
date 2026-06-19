@@ -167,6 +167,17 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "degraded", "database": str(e)}
 
+@app.get("/api/active-backend")
+async def active_backend(request: Request):
+    scheme = request.url.scheme
+    host = request.url.hostname
+    port = request.url.port or (443 if scheme == "https" else 80)
+    return {
+        "available": True,
+        "machines": [{"lanIP": host, "port": port}],
+        "message": "Cloud backend is active and serving requests."
+    }
+
 # --- KEEP-ALIVE BACKGROUND TASK (prevents server spin-down on free-tier hosts) ---
 KEEP_ALIVE_URL = os.getenv("KEEP_ALIVE_URL", "")
 
