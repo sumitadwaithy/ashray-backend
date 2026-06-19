@@ -586,7 +586,7 @@ async def upsert_client(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
-    return [c.data for c in clients if c.data is not None]
+    return [c.data for c in clients if c.data is not None and (c.data.get('name') or c.data.get('phone'))]
 
 @app.post("/api/client/bulk-upsert")
 async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
@@ -698,10 +698,14 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                 else: db.add(DocModel(id=doc_id, data=data))
                 continue
             fdb64 = data.get("fileData")
-            if fdb64 and isinstance(fdb64, str) and fdb64.startswith("data:"):
+            if fdb64 and isinstance(fdb64, str):
                 try:
-                    mime = fdb64.split(":")[1].split(";")[0]
-                    raw = base64.b64decode(fdb64.split(",", 1)[1])
+                    if fdb64.startswith("data:"):
+                        mime = fdb64.split(":")[1].split(";")[0]
+                        raw = base64.b64decode(fdb64.split(",", 1)[1])
+                    else:
+                        mime = "application/pdf"
+                        raw = base64.b64decode(fdb64)
                 except Exception:
                     raw = b""
                     mime = "application/octet-stream"
@@ -1110,7 +1114,7 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                             "id": d.id, "name": d.original_name, "file_name": d.original_name,
                             "clientId": d.clientId, "category": d.category, "type": "file",
                             "date": d.date, "mime_type": d.mime_type, "size": d.size,
-                            "has_file": True, "fileData": None,
+                            "has_file": d.file_path is not None, "fileData": None,
                         })
 
                     # Attach pending receipts
