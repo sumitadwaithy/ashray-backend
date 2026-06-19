@@ -1,5 +1,6 @@
 import base64
 import json
+import urllib.parse
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -826,6 +827,78 @@ async def view_document(filename: str, db: Session = Depends(get_db)):
     if content is None:
         raise HTTPException(status_code=404, detail="File not found on disk")
     return Response(content=content, media_type=doc.mime_type or "application/octet-stream")
+
+@app.get("/api/doc/serve/{doc_id}")
+async def serve_document(doc_id: str, db: Session = Depends(get_db)):
+    doc_id = urllib.parse.unquote(doc_id)
+    logger.info(f"🔍 Serving document: {doc_id}")
+
+    doc_rec = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+
+    if doc_rec:
+        fp = doc_rec.file_path or doc_rec.optimized_path
+        if fp:
+            content = await read_file(fp)
+            if content is not None:
+                ct = doc_rec.mime_type or "application/octet-stream"
+                return Response(
+                    content=content, media_type=ct,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{doc_rec.original_name}"',
+                        "Cache-Control": "public, max-age=86400"
+                    }
+                )
+        vd = doc_rec.virtual_data or {}
+        fd = vd.get("fileData")
+        if fd and isinstance(fd, str):
+            try:
+                if fd.startswith("data:"):
+                    h, e = fd.split(",", 1)
+                    dec = base64.b64decode(e)
+                    ct = h.split(":")[1].split(";")[0]
+                else:
+                    dec = base64.b64decode(fd)
+                    ct = doc_rec.mime_type or "application/octet-stream"
+                return Response(
+                    content=dec, media_type=ct,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{doc_rec.original_name}"',
+                        "Cache-Control": "public, max-age=86400"
+                    }
+                )
+            except Exception as ex:
+                logger.warning(f"Base64 decode failed for {doc_id}: {ex}")
+
+    old = db.query(DocModel).filter(DocModel.id == doc_id).first()
+    if old and old.data:
+        dd = old.data
+        fp = dd.get("file_path")
+        if fp:
+            content = await read_file(fp)
+            if content is not None:
+                ct = dd.get("mime_type") or "application/octet-stream"
+                return Response(
+                    content=content, media_type=ct,
+                    headers={"Content-Disposition": f'inline; filename="{dd.get("name", doc_id)}"', "Cache-Control": "public, max-age=86400"}
+                )
+        fd = dd.get("fileData")
+        if fd and isinstance(fd, str):
+            try:
+                if fd.startswith("data:"):
+                    h, e = fd.split(",", 1)
+                    dec = base64.b64decode(e)
+                    ct = h.split(":")[1].split(";")[0]
+                else:
+                    dec = base64.b64decode(fd)
+                    ct = dd.get("mime_type") or "application/octet-stream"
+                return Response(
+                    content=dec, media_type=ct,
+                    headers={"Content-Disposition": f'inline; filename="{dd.get("name", doc_id)}"', "Cache-Control": "public, max-age=86400"}
+                )
+            except Exception as ex:
+                logger.warning(f"Base64 decode failed for legacy doc {doc_id}: {ex}")
+
+    raise HTTPException(status_code=404, detail="Not Found")
 
 @app.get("/api/doc/download/{filename}")
 async def download_document(filename: str, db: Session = Depends(get_db)):
