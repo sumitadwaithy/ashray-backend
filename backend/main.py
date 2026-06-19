@@ -168,13 +168,10 @@ async def health_check(db: Session = Depends(get_db)):
         return {"status": "degraded", "database": str(e)}
 
 @app.get("/api/active-backend")
-async def active_backend(request: Request):
-    scheme = request.url.scheme
-    host = request.url.hostname
-    port = request.url.port or (443 if scheme == "https" else 80)
+async def active_backend():
     return {
         "available": True,
-        "machines": [{"lanIP": host, "port": port}],
+        "machines": [],
         "message": "Cloud backend is active and serving requests."
     }
 
