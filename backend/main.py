@@ -272,7 +272,7 @@ def get_all_docs(db: Session = Depends(get_db)):
     all_docs = []
     physical = db.query(DocumentModel).filter(DocumentModel.is_deleted == 0).all()
     for d in physical:
-        all_docs.append({
+        doc_dict = {
             "id": d.id,
             "name": d.original_name,
             "file_name": d.original_name,
@@ -296,7 +296,12 @@ def get_all_docs(db: Session = Depends(get_db)):
             "stored_filename": d.stored_filename,
             "sha256_hash": d.sha256_hash,
             "fileData": None,
-        })
+        }
+        if d.virtual_data and isinstance(d.virtual_data, dict):
+            for k, v in d.virtual_data.items():
+                if k not in ("fileData", "data") and v is not None:
+                    doc_dict[k] = v
+        all_docs.append(doc_dict)
     migrated_ids = {r[0] for r in db.query(DocumentModel.id).all()}
     old_docs = db.query(DocModel).all()
     for d in old_docs:
@@ -330,6 +335,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             if field in data:
                 setattr(existing, field, data[field])
         existing.updated_at = now
+        existing.virtual_data = data
         db.commit()
     else:
         db.add(DocumentModel(
@@ -345,6 +351,7 @@ async def upsert_doc(request: Request, db: Session = Depends(get_db)):
             folder_id=data.get("folder_id"),
             date=data.get("date"),
             created_at=now, updated_at=now, mime_type=data.get("mime_type"), is_virtual=0,
+            virtual_data=data,
         ))
         db.commit()
     # Handle fileData base64: save to disk if present
@@ -734,6 +741,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                     for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
+                    existing.virtual_data = data
                 else:
                     db.add(DocumentModel(
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
@@ -747,6 +755,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now, is_virtual=0,
+                        virtual_data=data,
                     ))
                 old = db.query(DocModel).filter(DocModel.id == doc_id).first()
                 if old: db.delete(old)
@@ -757,6 +766,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                     for f in ["clientId", "investorId", "loanId", "kissanId", "staffId", "category", "category_id", "folder_id", "date", "original_name"]:
                         if f in data: setattr(existing, f, data[f])
                     existing.updated_at = now
+                    existing.virtual_data = data
                 else:
                     db.add(DocumentModel(
                         id=doc_id, original_name=data.get("name") or data.get("file_name") or doc_id,
@@ -764,7 +774,7 @@ async def bulk_upsert_docs(request: Request, db: Session = Depends(get_db)):
                         loanId=data.get("loanId"), kissanId=data.get("kissanId"), staffId=data.get("staffId"),
                         category=data.get("category"), category_id=data.get("category_id"), folder_id=data.get("folder_id"),
                         date=data.get("date"), created_at=data.get("created_at") or now, updated_at=now,
-                        mime_type=data.get("mime_type"), is_virtual=0,
+                        mime_type=data.get("mime_type"), is_virtual=0, virtual_data=data,
                     ))
         db.commit()
         return {"status": "success", "count": len(data_list)}
