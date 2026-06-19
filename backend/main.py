@@ -1238,10 +1238,10 @@ async def upsert_settings(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/staff/all")
 def get_all_staff(db: Session = Depends(get_db)):
     try:
-        rows = db.execute(text("SELECT data FROM staff")).all()
-        return [r[0] for r in rows if r[0] is not None]
+        rows = db.query(ClientModel).filter(ClientModel.id.like("staff_%")).all()
+        return [r.data for r in rows if r.data is not None]
     except Exception as e:
-        logger.warning(f"Staff query failed (table may not exist): {str(e)}")
+        logger.warning(f"Staff query failed: {str(e)}")
         return []
 
 @app.post("/api/staff/bulk-upsert")
@@ -1270,20 +1270,10 @@ async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/market-updates/all")
 def get_all_market_updates(db: Session = Depends(get_db)):
     try:
-        rows = db.execute(text("SELECT * FROM property_market_updates")).all()
-        results = []
-        for r in rows:
-            item = dict(r._mapping)
-            if isinstance(item.get('attachments'), str):
-                try: item['attachments'] = json.loads(item['attachments'])
-                except: item['attachments'] = []
-            if isinstance(item.get('articleLinks'), str):
-                try: item['articleLinks'] = json.loads(item['articleLinks'])
-                except: item['articleLinks'] = []
-            results.append(item)
-        return results
+        rows = db.query(ClientModel).filter(ClientModel.id.like("mu_%")).all()
+        return [r.data for r in rows if r.data is not None]
     except Exception as e:
-        logger.warning(f"Market updates query failed (table may not exist): {str(e)}")
+        logger.warning(f"Market updates query failed: {str(e)}")
         return []
 
 @app.post("/api/market-updates/bulk-upsert")
@@ -1312,10 +1302,10 @@ async def bulk_upsert_market_updates(request: Request, db: Session = Depends(get
 @app.get("/api/application/all")
 def get_all_applications(db: Session = Depends(get_db)):
     try:
-        rows = db.execute(text("SELECT data FROM applications")).all()
-        return [r[0] for r in rows if r[0] is not None]
+        rows = db.query(ClientModel).filter(ClientModel.id.like("app_%")).all()
+        return [r.data for r in rows if r.data is not None]
     except Exception as e:
-        logger.warning(f"Applications query failed (table may not exist): {str(e)}")
+        logger.warning(f"Applications query failed: {str(e)}")
         return []
 
 @app.post("/api/application/bulk-upsert")
