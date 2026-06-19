@@ -1228,8 +1228,9 @@ async def upsert_settings(request: Request, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"Settings Upsert Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Settings Upsert Error: {type(e).__name__}: {str(e) or '(empty)'}")
+        logger.exception("Settings Upsert traceback:")
+        raise HTTPException(status_code=500, detail=str(e) or type(e).__name__)
 
 # =========================================================
 # STAFF ENDPOINTS (passthrough)
