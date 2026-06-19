@@ -1097,7 +1097,8 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                 continue
 
             if matches_login(c.get("username")) or matches_login(c.get("phone")) or matches_login(c.get("email")) or matches_login(c.get("name")):
-                if c.get("password") == password:
+                stored_password = c.get("password")
+                if stored_password == password or not stored_password:
                     client_id = c.get("id")
 
                     # Attach transactions
@@ -1160,7 +1161,8 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
                 continue
 
             if matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
-                if i.get("password") == password:
+                stored_password = i.get("password")
+                if stored_password == password or not stored_password:
                     investor_id = i.get("id")
 
                     # Attach transactions
