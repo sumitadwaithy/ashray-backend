@@ -1087,13 +1087,15 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
         # 1. CHECK CLIENTS
         # =========================================================
         all_clients = db.query(ClientModel).all()
+        logger.info(f"📋 Total clients in DB: {len(all_clients)}")
 
         for client in all_clients:
             c = client.data
             if not isinstance(c, dict):
+                logger.warning(f"⚠️ Client {client.id} has non-dict data: {type(c)}")
                 continue
 
-            if matches_login(c.get("username")) or matches_login(c.get("phone")) or matches_login(c.get("email")) or matches_login(c.get("name")):
+            if matches_login(c.get("id")) or matches_login(c.get("username")) or matches_login(c.get("phone")) or matches_login(c.get("email")) or matches_login(c.get("name")):
                 stored_password = c.get("password")
                 if stored_password == password or not stored_password:
                     client_id = c.get("id")
@@ -1151,13 +1153,15 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
         # 2. CHECK INVESTORS
         # =========================================================
         all_investors = db.query(InvestorModel).all()
+        logger.info(f"📋 Total investors in DB: {len(all_investors)}")
 
         for investor in all_investors:
             i = investor.data
             if not isinstance(i, dict):
+                logger.warning(f"⚠️ Investor {investor.id} has non-dict data: {type(i)}")
                 continue
 
-            if matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
+            if matches_login(i.get("id")) or matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
                 stored_password = i.get("password")
                 if stored_password == password or not stored_password:
                     investor_id = i.get("id")
@@ -1207,7 +1211,10 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
         # =========================================================
         # 3. NOT FOUND
         # =========================================================
-        logger.warning(f"❌ LOGIN FAILED: {login_id}")
+        client_ids = [c.data.get("id") or c.id for c in all_clients if isinstance(c.data, dict)]
+        client_usernames = [c.data.get("username") for c in all_clients if isinstance(c.data, dict)]
+        investor_ids = [i.data.get("id") or i.id for i in all_investors if isinstance(i.data, dict)]
+        logger.warning(f"❌ LOGIN FAILED: {login_id} — available client usernames: {client_usernames[:20]}, client IDs: {client_ids[:20]}, investor IDs: {investor_ids[:20]}")
         return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
 
     except Exception as e:
