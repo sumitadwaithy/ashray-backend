@@ -1440,6 +1440,212 @@ async def bulk_upsert_applications(request: Request, db: Session = Depends(get_d
         logger.error(f"Applications Bulk Upsert Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# =========================================================
+# RESET LEDGER ENDPOINT
+# =========================================================
+@app.post("/api/reset-ledger")
+async def reset_ledger(request: Request, db: Session = Depends(get_db)):
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        
+        reset_ongoing = body.get("resetOngoingAccounts")
+        if reset_ongoing is None:
+            reset_ongoing = True
+
+        logger.info(f"🔄 Reset Ledger request on cloud backend. resetOngoingAccounts={reset_ongoing}")
+
+        if reset_ongoing:
+            # Full Reset: delete everything from all tables, keeping only settings (id='main' in ClientModel)
+            db.query(PropertyModel).delete()
+            db.query(ReferralModel).delete()
+            db.query(DocModel).delete()
+            db.query(TransactionModel).delete()
+            db.query(InvestorModel).delete()
+            db.query(PendingReceiptModel).delete()
+            db.query(DocumentModel).delete()
+            
+            # Keep only the settings record in ClientModel
+            db.query(ClientModel).filter(ClientModel.id != "main").delete()
+            db.commit()
+            
+            logger.info("✅ Full reset ledger operation successfully completed on cloud backend.")
+            return {"status": "success", "message": "Full reset completed successfully on backend"}
+
+        # Partial Reset: Delete finished accounts, keep ongoing accounts with balances intact
+        # 1. Fetch transactions
+        tx_rows = db.query(TransactionModel).all()
+        transactions = [r.data for r in tx_rows if isinstance(r.data, dict)]
+
+        # 2. Process clients
+        all_client_rows = db.query(ClientModel).all()
+        kept_client_ids = set()
+        deleted_client_db_ids = set()
+
+        for row in all_client_rows:
+            row_id = row.id
+            if row_id == "main" or row_id.startswith("staff_") or row_id.startswith("mu_") or row_id.startswith("app_"):
+                continue  # Skip settings, staff, market updates, applications
+            
+            client = row.data
+            if not isinstance(client, dict):
+                deleted_client_db_ids.add(row_id)
+                continue
+            
+            client_id = client.get("id")
+            if not client_id:
+                deleted_client_db_ids.add(row_id)
+                continue
+            
+            client_txs = [t for t in transactions if t.get("clientId") == client_id and t.get("type") == "CREDIT"]
+            total_paid = sum(float(t.get("amount") or 0) for t in client_txs)
+
+            client_properties_list = []
+            investments = client.get("investments")
+            if isinstance(investments, list) and len(investments) > 0:
+                client_properties_list.extend(investments)
+            elif client.get("totalContractValue"):
+                client_properties_list.append({"amount": client.get("totalContractValue") or 0})
+            
+            contract_value = sum(float(p.get("amount") or 0) for p in client_properties_list if isinstance(p, dict))
+            remaining_balance = contract_value - total_paid
+
+            if remaining_balance > 0:
+                kept_client_ids.add(client_id)
+            else:
+                deleted_client_db_ids.add(row_id)
+
+        # 3. Process investors
+        all_investor_rows = db.query(InvestorModel).all()
+        kept_investor_ids = set()
+        deleted_investor_db_ids = set()
+
+        for row in all_investor_rows:
+            investor = row.data
+            if not isinstance(investor, dict):
+                deleted_investor_db_ids.add(row.id)
+                continue
+            
+            investor_id = investor.get("id")
+            if not investor_id:
+                deleted_investor_db_ids.add(row.id)
+                continue
+            
+            investor_txs = [t for t in transactions if t.get("investorId") == investor_id]
+            total_invested = float(investor.get("totalInvested") or 0)
+            total_interest_accrued = sum(
+                float(t.get("amount") or 0)
+                for t in investor_txs
+                if t.get("type") == "CREDIT" and t.get("category") == "INTEREST_ACCRUAL"
+            )
+            total_returns = sum(
+                float(t.get("amount") or 0)
+                for t in investor_txs
+                if t.get("type") == "DEBIT"
+            )
+            balance = total_invested + total_interest_accrued - total_returns
+
+            if balance > 0 or float(investor.get("currentBalance") or 0) > 0:
+                kept_investor_ids.add(investor_id)
+            else:
+                deleted_investor_db_ids.add(row.id)
+
+        # 4. Process staff
+        kept_staff_ids = set()
+        deleted_staff_db_ids = set()
+
+        for row in all_client_rows:
+            if row.id.startswith("staff_"):
+                staff = row.data
+                if not isinstance(staff, dict):
+                    deleted_staff_db_ids.add(row.id)
+                    continue
+                
+                staff_id = staff.get("id")
+                if not staff_id:
+                    deleted_staff_db_ids.add(row.id)
+                    continue
+                
+                if staff.get("status") == "ACTIVE":
+                    kept_staff_ids.add(staff_id)
+                else:
+                    deleted_staff_db_ids.add(row.id)
+
+        # 5. Perform deletions in a database session
+        # Delete clients
+        for db_id in deleted_client_db_ids:
+            db.query(ClientModel).filter(ClientModel.id == db_id).delete()
+
+        # Delete staff
+        for db_id in deleted_staff_db_ids:
+            db.query(ClientModel).filter(ClientModel.id == db_id).delete()
+
+        # Delete investors
+        for db_id in deleted_investor_db_ids:
+            db.query(InvestorModel).filter(InvestorModel.id == db_id).delete()
+
+        # Delete transactions which are NOT linked to any kept account
+        for t_row in db.query(TransactionModel).all():
+            t = t_row.data or {}
+            is_kept = (
+                (t.get("clientId") and t.get("clientId") in kept_client_ids) or
+                (t.get("investorId") and t.get("investorId") in kept_investor_ids) or
+                (t.get("staffId") and t.get("staffId") in kept_staff_ids)
+            )
+            if not is_kept:
+                db.delete(t_row)
+
+        # Delete docs from DocumentModel not related to kept accounts
+        for doc_row in db.query(DocumentModel).all():
+            is_kept = (
+                (doc_row.clientId and doc_row.clientId in kept_client_ids) or
+                (doc_row.investorId and doc_row.investorId in kept_investor_ids) or
+                (doc_row.staffId and doc_row.staffId in kept_staff_ids)
+            )
+            if not is_kept:
+                db.delete(doc_row)
+
+        # Delete docs from DocModel not related to kept accounts
+        for doc_row in db.query(DocModel).all():
+            d = doc_row.data or {}
+            is_kept = (
+                (d.get("clientId") and d.get("clientId") in kept_client_ids) or
+                (d.get("investorId") and d.get("investorId") in kept_investor_ids) or
+                (d.get("staffId") and d.get("staffId") in kept_staff_ids)
+            )
+            if not is_kept:
+                db.delete(doc_row)
+
+        # Delete pending receipts not related to kept accounts
+        for pr_row in db.query(PendingReceiptModel).all():
+            r = pr_row.data or {}
+            party_id = r.get("partyId") or r.get("clientId") or r.get("kissanId") or r.get("investorId") or r.get("loanId") or r.get("staffId")
+            is_kept = party_id and (
+                party_id in kept_client_ids or
+                party_id in kept_investor_ids or
+                party_id in kept_staff_ids
+            )
+            if not is_kept:
+                db.delete(pr_row)
+
+        # Delete referrals not related to kept client referrers
+        for ref_row in db.query(ReferralModel).all():
+            ref = ref_row.data or {}
+            is_kept = ref.get("referrerClientId") in kept_client_ids
+            if not is_kept:
+                db.delete(ref_row)
+
+        db.commit()
+        logger.info("✅ Partial reset ledger operation successfully completed on cloud backend.")
+        return {"status": "success", "message": "Partial reset completed successfully on backend"}
+
+    except Exception as e:
+        logger.error(f"❌ Reset Ledger Error on cloud backend: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Reset ledger failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
