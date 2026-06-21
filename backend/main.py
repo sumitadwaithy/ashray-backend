@@ -109,6 +109,36 @@ class InvestorModel(Base):
     id = Column(String, primary_key=True, index=True)
     data = Column(JSON)
 
+class KissanModel(Base):
+    __tablename__ = "kissans"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class LoanModel(Base):
+    __tablename__ = "loans"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class BankModel(Base):
+    __tablename__ = "banks"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class StaffModel(Base):
+    __tablename__ = "staff"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class FolderModel(Base):
+    __tablename__ = "folders"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
+class MasterPropertyModel(Base):
+    __tablename__ = "master_properties"
+    id = Column(String, primary_key=True, index=True)
+    data = Column(JSON)
+
 class PendingReceiptModel(Base):
     __tablename__ = "pending_receipts"
     id = Column(String, primary_key=True, index=True)
@@ -273,6 +303,138 @@ async def bulk_upsert_investors(request: Request, db: Session = Depends(get_db))
 @app.delete("/api/investor/delete/{item_id}")
 def delete_investor(item_id: str, db: Session = Depends(get_db)):
     item = db.query(InvestorModel).filter(InvestorModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- KISSAN ENDPOINTS ---
+@app.get("/api/kissan/all")
+def get_all_kissans(db: Session = Depends(get_db)):
+    items = db.query(KissanModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/kissan/upsert")
+async def upsert_kissan(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, KissanModel, db)
+
+@app.post("/api/kissan/bulk-upsert")
+async def bulk_upsert_kissans(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, KissanModel, db)
+
+@app.delete("/api/kissan/delete/{item_id}")
+def delete_kissan(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(KissanModel).filter(KissanModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- LOAN ENDPOINTS ---
+@app.get("/api/loan/all")
+def get_all_loans(db: Session = Depends(get_db)):
+    items = db.query(LoanModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/loan/upsert")
+async def upsert_loan(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, LoanModel, db)
+
+@app.post("/api/loan/bulk-upsert")
+async def bulk_upsert_loans(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, LoanModel, db)
+
+@app.delete("/api/loan/delete/{item_id}")
+def delete_loan(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(LoanModel).filter(LoanModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- BANK ENDPOINTS ---
+@app.get("/api/bank/all")
+def get_all_banks(db: Session = Depends(get_db)):
+    items = db.query(BankModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/bank/upsert")
+async def upsert_bank(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, BankModel, db)
+
+@app.post("/api/bank/bulk-upsert")
+async def bulk_upsert_banks(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, BankModel, db)
+
+@app.delete("/api/bank/delete/{item_id}")
+def delete_bank(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(BankModel).filter(BankModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- STAFF ENDPOINTS ---
+@app.get("/api/staff/all")
+def get_all_staff(db: Session = Depends(get_db)):
+    items = db.query(StaffModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/staff/upsert")
+async def upsert_staff(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, StaffModel, db)
+
+@app.post("/api/staff/bulk-upsert")
+async def bulk_upsert_staff(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, StaffModel, db)
+
+@app.delete("/api/staff/delete/{item_id}")
+def delete_staff(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(StaffModel).filter(StaffModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- FOLDER ENDPOINTS ---
+@app.get("/api/folder/all")
+def get_all_folders(db: Session = Depends(get_db)):
+    items = db.query(FolderModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/folder/upsert")
+async def upsert_folder(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, FolderModel, db)
+
+@app.post("/api/folder/bulk-upsert")
+async def bulk_upsert_folders(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, FolderModel, db)
+
+@app.delete("/api/folder/delete/{item_id}")
+def delete_folder(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(FolderModel).filter(FolderModel.id == item_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"status": "deleted"}
+
+# --- MASTER PROPERTY ENDPOINTS ---
+@app.get("/api/master-properties/all")
+def get_all_master_properties(db: Session = Depends(get_db)):
+    items = db.query(MasterPropertyModel).all()
+    return [i.data for i in items if i.data is not None]
+
+@app.post("/api/master-properties/upsert")
+async def upsert_master_property(request: Request, db: Session = Depends(get_db)):
+    return await generic_upsert(request, MasterPropertyModel, db)
+
+@app.post("/api/master-properties/bulk-upsert")
+async def bulk_upsert_master_properties(request: Request, db: Session = Depends(get_db)):
+    return await generic_bulk_upsert(request, MasterPropertyModel, db)
+
+@app.delete("/api/master-properties/delete/{item_id}")
+def delete_master_property(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(MasterPropertyModel).filter(MasterPropertyModel.id == item_id).first()
     if item:
         db.delete(item)
         db.commit()
@@ -1466,6 +1628,12 @@ async def reset_ledger(request: Request, db: Session = Depends(get_db)):
             db.query(InvestorModel).delete()
             db.query(PendingReceiptModel).delete()
             db.query(DocumentModel).delete()
+            db.query(KissanModel).delete()
+            db.query(LoanModel).delete()
+            db.query(BankModel).delete()
+            db.query(StaffModel).delete()
+            db.query(FolderModel).delete()
+            db.query(MasterPropertyModel).delete()
             
             # Keep only the settings record in ClientModel
             db.query(ClientModel).filter(ClientModel.id != "main").delete()
