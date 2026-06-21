@@ -1535,15 +1535,22 @@ async def reset_ledger(request: Request, db: Session = Depends(get_db)):
             
             investor_txs = [t for t in transactions if t.get("investorId") == investor_id]
             total_invested = float(investor.get("totalInvested") or 0)
-            total_interest_accrued = sum(
-                float(t.get("amount") or 0)
-                for t in investor_txs
-                if t.get("type") == "CREDIT" and t.get("category") == "INTEREST_ACCRUAL"
-            )
+            
+            # Sum up INTEREST_ACCRUAL transactions: DEBIT is appreciation (+), CREDIT is depreciation (-)
+            total_interest_accrued = 0.0
+            for t in investor_txs:
+                if t.get("category") == "INTEREST_ACCRUAL":
+                    amount = float(t.get("amount") or 0)
+                    if t.get("type") == "DEBIT":
+                        total_interest_accrued += amount
+                    elif t.get("type") == "CREDIT":
+                        total_interest_accrued -= amount
+            
+            # Payouts: any DEBIT transaction NOT of category INTEREST_ACCRUAL
             total_returns = sum(
                 float(t.get("amount") or 0)
                 for t in investor_txs
-                if t.get("type") == "DEBIT"
+                if t.get("type") == "DEBIT" and t.get("category") != "INTEREST_ACCRUAL"
             )
             balance = total_invested + total_interest_accrued - total_returns
 
