@@ -775,7 +775,12 @@ async def upsert_client(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
-    clients = db.query(ClientModel).all()
+    clients = db.query(ClientModel).filter(
+        ClientModel.id != "main",
+        ~ClientModel.id.like("mu_%"),
+        ~ClientModel.id.like("staff_%"),
+        ~ClientModel.id.like("app_%"),
+    ).all()
     return [c.data for c in clients if c.data is not None and c.data.get('id') and not c.data.get('is_deleted')]
 
 @app.post("/api/client/bulk-upsert")
