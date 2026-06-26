@@ -1341,7 +1341,67 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
             return JSONResponse(status_code=400, content={"message": "ID and Password required"})
 
         # =========================================================
-        # 1. CHECK CLIENTS
+        # 1. CHECK INVESTORS (checked first so investor credentials
+        #    don't accidentally match a client record via digit substrings)
+        # =========================================================
+        all_investors = db.query(InvestorModel).all()
+        logger.info(f"📋 Total investors in DB: {len(all_investors)}")
+
+        for investor in all_investors:
+            i = investor.data
+            if not isinstance(i, dict):
+                logger.warning(f"⚠️ Investor {investor.id} has non-dict data: {type(i)}")
+                continue
+
+            if matches_login(i.get("id")) or matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
+                stored_password = i.get("password")
+                if stored_password == password or not stored_password:
+                    investor_id = i.get("id")
+
+                    # Attach transactions
+                    all_txs = db.query(TransactionModel).all()
+                    i["transactions"] = [
+                        t.data for t in all_txs
+                        if t.data and t.data.get("investorId") == investor_id
+                    ]
+
+                    # Attach docs (both new DocumentModel and old DocModel)
+                    all_docs_new = db.query(DocumentModel).filter(
+                        DocumentModel.investorId == investor_id, DocumentModel.is_deleted == 0
+                    ).all()
+                    all_docs_old = db.query(DocModel).all()
+                    i["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
+                    for d in all_docs_new:
+                        i["docs"].append({
+                            "id": d.id, "name": d.original_name, "file_name": d.original_name,
+                            "investorId": d.investorId, "category": d.category, "type": "file",
+                            "date": d.date, "mime_type": d.mime_type, "size": d.size,
+                            "has_file": True, "fileData": None,
+                        })
+
+                    # Attach pending receipts
+                    all_pr = db.query(PendingReceiptModel).all()
+                    i["pending_receipts"] = [
+                        r.data for r in all_pr
+                        if r.data and (
+                            (r.data.get("partyId") == investor_id and r.data.get("partyType") == "investor") or
+                            r.data.get("transactionId") in [tx.get("id") for tx in i.get("transactions", [])]
+                        )
+                    ]
+
+                    logger.info(f"✅ INVESTOR LOGIN SUCCESS: {investor_id}")
+
+                    return {
+                        "status": "success",
+                        "role": "investor",
+                        "data": i
+                    }
+
+                else:
+                    logger.warning(f"❌ Investor password mismatch: {login_id}")
+
+        # =========================================================
+        # 2. CHECK CLIENTS
         # =========================================================
         all_clients = db.query(ClientModel).all()
         logger.info(f"📋 Total clients in DB: {len(all_clients)}")
@@ -1405,65 +1465,6 @@ async def unified_login(request: Request, db: Session = Depends(get_db)):
 
                 else:
                     logger.warning(f"❌ Client password mismatch: {login_id}")
-
-        # =========================================================
-        # 2. CHECK INVESTORS
-        # =========================================================
-        all_investors = db.query(InvestorModel).all()
-        logger.info(f"📋 Total investors in DB: {len(all_investors)}")
-
-        for investor in all_investors:
-            i = investor.data
-            if not isinstance(i, dict):
-                logger.warning(f"⚠️ Investor {investor.id} has non-dict data: {type(i)}")
-                continue
-
-            if matches_login(i.get("id")) or matches_login(i.get("username")) or matches_login(i.get("phone")) or matches_login(i.get("email")):
-                stored_password = i.get("password")
-                if stored_password == password or not stored_password:
-                    investor_id = i.get("id")
-
-                    # Attach transactions
-                    all_txs = db.query(TransactionModel).all()
-                    i["transactions"] = [
-                        t.data for t in all_txs
-                        if t.data and t.data.get("investorId") == investor_id
-                    ]
-
-                    # Attach docs (both new DocumentModel and old DocModel)
-                    all_docs_new = db.query(DocumentModel).filter(
-                        DocumentModel.investorId == investor_id, DocumentModel.is_deleted == 0
-                    ).all()
-                    all_docs_old = db.query(DocModel).all()
-                    i["docs"] = [d.data for d in all_docs_old if d.data and d.data.get("investorId") == investor_id]
-                    for d in all_docs_new:
-                        i["docs"].append({
-                            "id": d.id, "name": d.original_name, "file_name": d.original_name,
-                            "investorId": d.investorId, "category": d.category, "type": "file",
-                            "date": d.date, "mime_type": d.mime_type, "size": d.size,
-                            "has_file": True, "fileData": None,
-                        })
-
-                    # Attach pending receipts
-                    all_pr = db.query(PendingReceiptModel).all()
-                    i["pending_receipts"] = [
-                        r.data for r in all_pr
-                        if r.data and (
-                            (r.data.get("partyId") == investor_id and r.data.get("partyType") == "investor") or
-                            r.data.get("transactionId") in [tx.get("id") for tx in i.get("transactions", [])]
-                        )
-                    ]
-
-                    logger.info(f"✅ INVESTOR LOGIN SUCCESS: {investor_id}")
-
-                    return {
-                        "status": "success",
-                        "role": "investor",
-                        "data": i
-                    }
-
-                else:
-                    logger.warning(f"❌ Investor password mismatch: {login_id}")
 
         # =========================================================
         # 3. NOT FOUND
@@ -1632,7 +1633,6 @@ async def reset_ledger(request: Request, db: Session = Depends(get_db)):
             db.query(LoanModel).delete()
             db.query(BankModel).delete()
             db.query(StaffModel).delete()
-            db.query(FolderModel).delete()
             db.query(MasterPropertyModel).delete()
             
             # Keep only the settings record in ClientModel
