@@ -290,7 +290,7 @@ async def generic_bulk_upsert(request: Request, model, db: Session):
 @app.get("/api/investor/all")
 def get_all_investors(db: Session = Depends(get_db)):
     items = db.query(InvestorModel).all()
-    return [i.data for i in items if i.data is not None]
+    return [i.data for i in items if i.data is not None and not i.data.get('is_deleted')]
 
 @app.post("/api/investor/upsert")
 async def upsert_investor(request: Request, db: Session = Depends(get_db)):
@@ -776,7 +776,7 @@ async def upsert_client(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/client/all")
 def get_all_clients(db: Session = Depends(get_db)):
     clients = db.query(ClientModel).all()
-    return [c.data for c in clients if c.data is not None and c.data.get('id')]
+    return [c.data for c in clients if c.data is not None and c.data.get('id') and not c.data.get('is_deleted')]
 
 @app.post("/api/client/bulk-upsert")
 async def bulk_upsert_clients(request: Request, db: Session = Depends(get_db)):
