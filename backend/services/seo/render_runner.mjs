@@ -37,11 +37,16 @@ try {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--disable-blink-features=AutomationControlled',
     ],
   });
 
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (compatible; SEOValidatorBot/1.0; +https://ashraygroup.in)',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 800 },
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
   });
 
   const page = await context.newPage();
@@ -51,6 +56,12 @@ try {
     waitUntil: 'networkidle',
     timeout: 30000,
   }).catch(() => null);
+
+  // Wait if bot challenge page is detected
+  let checkTitle = await page.title().catch(() => '');
+  if (checkTitle.includes('Checking your browser') || checkTitle.includes('Just a moment')) {
+    await page.waitForFunction(() => !document.title.includes('Checking your browser') && !document.title.includes('Just a moment'), { timeout: 8000 }).catch(() => {});
+  }
 
   await page.waitForFunction(() => document.readyState === 'complete', { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(500);
