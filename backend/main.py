@@ -49,6 +49,18 @@ app.add_middleware(
 )
 
 # -------------------------
+# SEO & HEALTH ROUTERS (SAFE INTEGRATION)
+# -------------------------
+try:
+    from .routers import seo as seo_router, analytics as analytics_router, pagespeed as pagespeed_router, health as health_router
+    app.include_router(seo_router.router)
+    app.include_router(analytics_router.router)
+    app.include_router(pagespeed_router.router)
+    app.include_router(health_router.router)
+except Exception as e:
+    logger.error(f"Failed to load SEO routers: {e}")
+
+# -------------------------
 # DATABASE SETUP
 # -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
