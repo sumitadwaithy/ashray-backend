@@ -2,7 +2,15 @@ import time
 import json
 import asyncio
 import base64
+import os
 from pathlib import Path
+
+# Configure Playwright to use project-local cache if available
+base_dir = Path(__file__).parent.parent.parent.resolve()
+local_cache = base_dir / ".cache" / "ms-playwright"
+if local_cache.exists():
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
+
 from .schema import ValidateSeoResponse, ValidatorSeoData, OgTag, TwitterTag, HreflangTag
 
 def build_response_from_runner_data(url: str, start: float, data: dict) -> ValidateSeoResponse:

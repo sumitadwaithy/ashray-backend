@@ -102,7 +102,7 @@ Configure the following Environment Variables in the Render dashboard:
 - `PORT`: `8000` (or leave default, Render automatically provides this)
 - `DATABASE_URL`: Your production database connection string (e.g. PostgreSQL)
 
-*Note: Playwright browser binaries downloaded during the build step are cached in Render's build directory and carried over to the runtime environment automatically.*
+*Note: Playwright browser binaries downloaded during the build step are stored in the project-local `.cache/ms-playwright` directory, ensuring they are preserved and carried over to Render's runtime environment automatically.*
 
 ---
 
@@ -112,7 +112,7 @@ Configure the following Environment Variables in the Render dashboard:
 | :--- | :--- | :--- |
 | `PORT` | The port on which uvicorn listens. | `8000` |
 | `DATABASE_URL` | SQLAlchemy connection string (e.g. SQLite, PostgreSQL). | `sqlite:///./test.db` |
-| `PLAYWRIGHT_BROWSERS_PATH` | Directory where Playwright downloads and looks for browser binaries. | `~/.cache/ms-playwright` |
+| `PLAYWRIGHT_BROWSERS_PATH` | Directory where Playwright downloads and looks for browser binaries. | `ashray-backend/.cache/ms-playwright` |
 
 ---
 

@@ -21,6 +21,12 @@ import platform
 import traceback
 import subprocess
 
+# Configure Playwright to use project-local cache if available
+base_dir = Path(__file__).parent.resolve()
+local_cache = base_dir / ".cache" / "ms-playwright"
+if local_cache.exists():
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
+
 from .storage import (
     save_upload, save_optimized, save_thumbnail, read_file,
     delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
