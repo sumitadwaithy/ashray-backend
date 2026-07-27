@@ -43,6 +43,20 @@ def build_response_from_runner_data(url: str, start: float, data: dict) -> Valid
         seo=seo_data
     )
 
+def parse_runner_stdout(stdout: bytes) -> dict | None:
+    if not stdout:
+        return None
+
+    lines = stdout.decode("utf-8", errors="ignore").strip().splitlines()
+    for line in reversed(lines):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                return None
+    return None
+
 async def render_with_python_playwright(url: str, start: float) -> ValidateSeoResponse:
     from playwright.async_api import async_playwright
 
@@ -189,17 +203,12 @@ async def validate_page(url: str) -> ValidateSeoResponse:
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=35.0)
-            
-            if proc.returncode == 0 and stdout:
-                lines = stdout.decode("utf-8", errors="ignore").strip().splitlines()
-                # Find JSON output line
-                for line in reversed(lines):
-                    line = line.strip()
-                    if line.startswith("{") and line.endswith("}"):
-                        data = json.loads(line)
-                        if data.get("success"):
-                            return build_response_from_runner_data(url, start, data)
-                        render_errors.append(data.get("error") or "Node Playwright runner returned success=false")
+
+            data = parse_runner_stdout(stdout)
+            if data:
+                if data.get("success"):
+                    return build_response_from_runner_data(url, start, data)
+                render_errors.append(data.get("error") or "Node Playwright runner returned success=false")
             else:
                 stderr_text = stderr.decode("utf-8", errors="ignore").strip()
                 render_errors.append(stderr_text or f"Node Playwright runner exited with code {proc.returncode}")
