@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ashray-backend
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt &&
+      npm install --omit=dev --ignore-scripts &&
+      npx playwright install chromium &&
+      python -m playwright install chromium
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
