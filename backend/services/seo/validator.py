@@ -187,43 +187,14 @@ async def render_with_python_playwright(url: str, start: float) -> ValidateSeoRe
 
 async def validate_page(url: str) -> ValidateSeoResponse:
     start = time.time()
-    render_errors = []
     
-    # 1. Try running Node Playwright runner script for full JS rendering
-    try:
-        script_dir = Path(__file__).parent
-        runner_path = script_dir / "render_runner.mjs"
-        
-        if runner_path.exists():
-            proc = await asyncio.create_subprocess_exec(
-                "node",
-                str(runner_path),
-                url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=35.0)
-
-            data = parse_runner_stdout(stdout)
-            if data:
-                if data.get("success"):
-                    return build_response_from_runner_data(url, start, data)
-                render_errors.append(data.get("error") or "Node Playwright runner returned success=false")
-            else:
-                stderr_text = stderr.decode("utf-8", errors="ignore").strip()
-                render_errors.append(stderr_text or f"Node Playwright runner exited with code {proc.returncode}")
-    except Exception as e:
-        render_errors.append(f"Node Playwright subprocess failed: {e}")
-
-    # 2. Fallback to Python Playwright only. Never use static HTTP for rendered validation.
     try:
         return await render_with_python_playwright(url, start)
     except Exception as e:
-        render_errors.append(f"Python Playwright render failed: {e}")
         elapsed = round((time.time() - start) * 1000, 2)
         return ValidateSeoResponse(
             success=False,
             executionTimeMs=elapsed,
             requestedUrl=url,
-            error="Rendered SEO validation requires Playwright-rendered HTML. " + " | ".join(render_errors)
+            error=f"Rendered SEO validation requires Playwright-rendered HTML. Python Playwright render failed: {e}"
         )
