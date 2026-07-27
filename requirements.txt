@@ -8,3 +8,4 @@ httpx
 aiofiles
 pillow
 pikepdf
+playwright
