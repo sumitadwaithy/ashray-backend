@@ -260,11 +260,12 @@ async def startup_event():
         from .services.seo.playwright_check import check_playwright
 
         result = await check_playwright()
-        for msg in result["messages"]:
-            if result["chromium_available"] and result["playwright_installed"]:
+        if result["chromium_available"] and result["playwright_installed"]:
+            for msg in result["messages"]:
                 logger.info(msg)
-            else:
-                logger.warning(msg)
+        else:
+            for msg in result["messages"]:
+                logger.critical(msg)
     except ImportError:
         logger.info("SEO Validator: playwright_check module not available (seo service directory may not be deployed)")
 
