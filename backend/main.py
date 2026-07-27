@@ -256,6 +256,18 @@ async def startup_event():
     logger.info("🚀 Starting keep-alive background task...")
     asyncio.create_task(keep_alive())
 
+    try:
+        from .services.seo.playwright_check import check_playwright
+
+        result = await check_playwright()
+        for msg in result["messages"]:
+            if result["chromium_available"] and result["playwright_installed"]:
+                logger.info(msg)
+            else:
+                logger.warning(msg)
+    except ImportError:
+        logger.info("SEO Validator: playwright_check module not available (seo service directory may not be deployed)")
+
 # --- HELPER FOR GENERIC CRUD ---
 async def generic_upsert(request: Request, model, db: Session):
     try:

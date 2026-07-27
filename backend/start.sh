@@ -8,7 +8,7 @@ echo "==> Installing Python dependencies..."
 pip install -r requirements.txt
 
 echo "==> Installing Playwright Chromium browser..."
-PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$DIR/.playwright}" python -m playwright install chromium
+python -m playwright install chromium
 
 echo "==> Starting Ashray Backend..."
 exec uvicorn main:app --host 0.0.0.0 --port "${PORT:-8000}"
