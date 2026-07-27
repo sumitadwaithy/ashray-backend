@@ -30,6 +30,7 @@ class ValidatorSeoData(BaseModel):
     metaDescription: str = ""
     canonical: str = ""
     robots: str = ""
+    keywords: str = ""
     viewport: str = ""
     themeColor: str = ""
     favicon: str = ""
