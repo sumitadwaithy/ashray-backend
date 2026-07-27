@@ -16,6 +16,13 @@ echo "Step 2: Installing Playwright Chromium browser..."
 echo "  (This downloads ~300 MB to ~/.cache/ms-playwright/)"
 python -m playwright install chromium
 
+# Install system dependencies if running with root privileges (e.g. VPS bootstrap)
+if [ "$(id -u)" -eq 0 ]; then
+  echo ""
+  echo "Step 3: Running as root. Installing system dependencies for Chromium..."
+  python -m playwright install-deps chromium || true
+fi
+
 echo ""
 echo "============================================"
 echo "  Setup complete."
