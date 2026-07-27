@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 # Configure Playwright to use project-local cache if available
 base_dir = Path(__file__).parent.parent.parent.resolve()
-local_cache = base_dir / ".cache" / "ms-playwright"
+local_cache = base_dir / "playwright_browsers"
 if local_cache.exists():
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
 
@@ -31,7 +31,7 @@ async def check_playwright():
     browsers_path = Path(
         os.environ.get(
             "PLAYWRIGHT_BROWSERS_PATH",
-            str(Path.home() / ".cache" / "ms-playwright"),
+            str(base_dir / "playwright_browsers"),
         )
     )
 

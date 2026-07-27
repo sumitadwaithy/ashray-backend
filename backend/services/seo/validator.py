@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Configure Playwright to use project-local cache if available
 base_dir = Path(__file__).parent.parent.parent.resolve()
-local_cache = base_dir / ".cache" / "ms-playwright"
+local_cache = base_dir / "playwright_browsers"
 if local_cache.exists():
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
 

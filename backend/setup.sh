@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 echo ""
 echo "Step 2: Installing Playwright Chromium browser..."
-export PLAYWRIGHT_BROWSERS_PATH="$DIR/.cache/ms-playwright"
+export PLAYWRIGHT_BROWSERS_PATH="$DIR/playwright_browsers"
 echo "  (This downloads ~300 MB to $PLAYWRIGHT_BROWSERS_PATH)"
 python -m playwright install chromium
 
