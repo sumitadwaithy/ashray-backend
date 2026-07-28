@@ -27,11 +27,18 @@ local_cache = base_dir / "playwright_browsers"
 if local_cache.exists():
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
 
-from storage import (
-    save_upload, save_optimized, save_thumbnail, read_file,
-    delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
-)
-from media_compression import auto_compress
+try:
+    from .storage import (
+        save_upload, save_optimized, save_thumbnail, read_file,
+        delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
+    )
+    from .media_compression import auto_compress
+except ImportError:
+    from storage import (
+        save_upload, save_optimized, save_thumbnail, read_file,
+        delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
+    )
+    from media_compression import auto_compress
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -62,7 +69,10 @@ app.add_middleware(
 # SEO & HEALTH ROUTERS (SAFE INTEGRATION)
 # -------------------------
 try:
-    from routers import seo as seo_router, analytics as analytics_router, pagespeed as pagespeed_router, health as health_router
+    try:
+        from .routers import seo as seo_router, analytics as analytics_router, pagespeed as pagespeed_router, health as health_router
+    except ImportError:
+        from routers import seo as seo_router, analytics as analytics_router, pagespeed as pagespeed_router, health as health_router
     app.include_router(seo_router.router)
     app.include_router(analytics_router.router)
     app.include_router(pagespeed_router.router)
@@ -268,7 +278,10 @@ async def startup_event():
     asyncio.create_task(keep_alive())
 
     try:
-        from services.seo.playwright_check import check_playwright
+        try:
+            from .services.seo.playwright_check import check_playwright
+        except ImportError:
+            from services.seo.playwright_check import check_playwright
 
         result = await check_playwright()
         if result["chromium_available"] and result["playwright_installed"]:

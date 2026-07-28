@@ -97,6 +97,16 @@ When creating a **Web Service** on Render, set the following fields:
 - **Build Command**: `./setup.sh`
 - **Start Command**: `./start.sh`
 
+If your Render service root points to the parent repository instead of this
+backend directory, use:
+
+- **Build Command**: `cd ashray-backend && ./setup.sh`
+- **Start Command**: `cd ashray-backend && ./start.sh`
+
+Do not use only `pip install -r requirements.txt` for the build command. That
+installs Python packages, but it does not download the Playwright Chromium
+browser required by `/api/seo/validate`.
+
 ### Environment Variables
 Configure the following Environment Variables in the Render dashboard:
 - `PORT`: `8000` (or leave default, Render automatically provides this)
