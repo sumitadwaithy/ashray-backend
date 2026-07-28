@@ -19,6 +19,9 @@ _browser_install_lock = asyncio.Lock()
 _browser_install_task: Optional[asyncio.Task] = None
 _browser_install_attempted = False
 _browser_install_message = ""
+_render_lock = asyncio.Lock()
+
+RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 def build_response_from_runner_data(url: str, start: float, data: dict) -> ValidateSeoResponse:
     seo_raw = data.get("seo") or {}
@@ -72,7 +75,7 @@ def parse_runner_stdout(stdout: bytes) -> dict | None:
                 return None
     return None
 
-async def render_with_python_playwright(url: str, start: float) -> ValidateSeoResponse:
+async def render_once_with_python_playwright(url: str, start: float) -> ValidateSeoResponse:
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
@@ -91,14 +94,20 @@ async def render_with_python_playwright(url: str, start: float) -> ValidateSeoRe
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 800},
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Cache-Control": "no-cache",
+                    "DNT": "1",
+                    "Upgrade-Insecure-Requests": "1",
+                },
             )
             page = await context.new_page()
             page.set_default_timeout(30000)
 
             response = None
             try:
-                response = await page.goto(url, wait_until="networkidle", timeout=30000)
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             except Exception:
                 response = None
 
@@ -200,6 +209,22 @@ async def render_with_python_playwright(url: str, start: float) -> ValidateSeoRe
         finally:
             await browser.close()
 
+async def render_with_python_playwright(url: str, start: float) -> ValidateSeoResponse:
+    last_result: ValidateSeoResponse | None = None
+
+    async with _render_lock:
+        for attempt in range(3):
+            if attempt > 0:
+                await asyncio.sleep(4 * attempt)
+
+            result = await render_once_with_python_playwright(url, start)
+            last_result = result
+
+            if result.httpStatus not in RETRYABLE_HTTP_STATUSES:
+                return result
+
+        return last_result or await render_once_with_python_playwright(url, start)
+
 def is_missing_playwright_browser_error(error: Exception) -> bool:
     message = str(error).lower()
     return (
@@ -272,14 +297,52 @@ async def validate_page(url: str) -> ValidateSeoResponse:
     start = time.time()
     
     try:
-        return await render_with_python_playwright(url, start)
+        result = await render_with_python_playwright(url, start)
+        if result.httpStatus and result.httpStatus >= 400:
+            status_label = "rate-limited" if result.httpStatus == 429 else "rejected"
+            return ValidateSeoResponse(
+                success=False,
+                executionTimeMs=result.executionTimeMs,
+                requestedUrl=url,
+                finalUrl=result.finalUrl,
+                httpStatus=result.httpStatus,
+                renderedHtml=result.renderedHtml,
+                renderedHead=result.renderedHead,
+                screenshot=result.screenshot,
+                seo=result.seo,
+                error=(
+                    f"Public page {status_label} the validator with HTTP {result.httpStatus}. "
+                    "This response came from ashraygroup.in, not from the VPS validator. "
+                    "Wait a few minutes and retry, or whitelist the VPS/backend IP in the public website hosting/CDN rate-limit rules."
+                ),
+            )
+        return result
     except Exception as e:
         if is_missing_playwright_browser_error(e):
             warm_result = await wait_for_warm_browser_install()
             installed, install_message = warm_result if warm_result is not None else await install_playwright_browser()
             if installed:
                 try:
-                    return await render_with_python_playwright(url, start)
+                    result = await render_with_python_playwright(url, start)
+                    if result.httpStatus and result.httpStatus >= 400:
+                        status_label = "rate-limited" if result.httpStatus == 429 else "rejected"
+                        return ValidateSeoResponse(
+                            success=False,
+                            executionTimeMs=result.executionTimeMs,
+                            requestedUrl=url,
+                            finalUrl=result.finalUrl,
+                            httpStatus=result.httpStatus,
+                            renderedHtml=result.renderedHtml,
+                            renderedHead=result.renderedHead,
+                            screenshot=result.screenshot,
+                            seo=result.seo,
+                            error=(
+                                f"Public page {status_label} the validator with HTTP {result.httpStatus}. "
+                                "This response came from ashraygroup.in, not from the VPS validator. "
+                                "Wait a few minutes and retry, or whitelist the VPS/backend IP in the public website hosting/CDN rate-limit rules."
+                            ),
+                        )
+                    return result
                 except Exception as retry_error:
                     e = Exception(f"{install_message} Retry failed: {retry_error}")
             else:
