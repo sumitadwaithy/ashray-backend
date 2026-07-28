@@ -279,8 +279,10 @@ async def startup_event():
     try:
         try:
             from .services.seo.playwright_check import check_playwright
+            from .services.seo.validator import warm_playwright_browser_install
         except ImportError:
             from services.seo.playwright_check import check_playwright
+            from services.seo.validator import warm_playwright_browser_install
 
         result = await check_playwright()
         if result["chromium_available"] and result["playwright_installed"]:
@@ -289,6 +291,9 @@ async def startup_event():
         else:
             for msg in result["messages"]:
                 logger.critical(msg)
+            if result["playwright_installed"] and not result["chromium_available"]:
+                logger.info("SEO Validator: starting background Chromium install")
+                warm_playwright_browser_install()
     except ImportError:
         logger.info("SEO Validator: playwright_check module not available (seo service directory may not be deployed)")
 
