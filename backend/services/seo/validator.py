@@ -3,13 +3,14 @@ import json
 import asyncio
 import base64
 import os
+import sys
+import subprocess
 from pathlib import Path
 
 # Configure Playwright to use project-local cache if available
 base_dir = Path(__file__).parent.parent.parent.resolve()
 local_cache = base_dir / "playwright_browsers"
-if local_cache.exists():
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(local_cache))
 
 from .schema import ValidateSeoResponse, ValidatorSeoData, OgTag, TwitterTag, HreflangTag
 
@@ -193,12 +194,57 @@ async def render_with_python_playwright(url: str, start: float) -> ValidateSeoRe
         finally:
             await browser.close()
 
+def is_missing_playwright_browser_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        "executable doesn't exist" in message
+        or "executable does not exist" in message
+        or "please run the following command to download new browsers" in message
+        or "playwright install" in message
+    )
+
+async def install_playwright_browser() -> tuple[bool, str]:
+    env = os.environ.copy()
+    env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(local_cache))
+    local_cache.mkdir(parents=True, exist_ok=True)
+
+    def run_install():
+        return subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            cwd=str(base_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+
+    try:
+        result = await asyncio.to_thread(run_install)
+    except Exception as e:
+        return False, f"Automatic Playwright browser install failed: {e}"
+
+    if result.returncode == 0:
+        return True, "Playwright Chromium browser installed automatically."
+
+    details = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
+    return False, f"Automatic Playwright browser install failed with exit code {result.returncode}: {details}"
+
 async def validate_page(url: str) -> ValidateSeoResponse:
     start = time.time()
     
     try:
         return await render_with_python_playwright(url, start)
     except Exception as e:
+        if is_missing_playwright_browser_error(e):
+            installed, install_message = await install_playwright_browser()
+            if installed:
+                try:
+                    return await render_with_python_playwright(url, start)
+                except Exception as retry_error:
+                    e = Exception(f"{install_message} Retry failed: {retry_error}")
+            else:
+                e = Exception(install_message)
+
         elapsed = round((time.time() - start) * 1000, 2)
         return ValidateSeoResponse(
             success=False,

@@ -24,8 +24,7 @@ import subprocess
 # Configure Playwright to use project-local cache if available
 base_dir = Path(__file__).parent.resolve()
 local_cache = base_dir / "playwright_browsers"
-if local_cache.exists():
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(local_cache))
 
 try:
     from .storage import (
