@@ -6,6 +6,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 # Configure Playwright to use project-local cache if available
 base_dir = Path(__file__).parent.parent.parent.resolve()
@@ -13,6 +14,11 @@ local_cache = base_dir / "playwright_browsers"
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(local_cache))
 
 from .schema import ValidateSeoResponse, ValidatorSeoData, OgTag, TwitterTag, HreflangTag
+
+_browser_install_lock = asyncio.Lock()
+_browser_install_task: Optional[asyncio.Task] = None
+_browser_install_attempted = False
+_browser_install_message = ""
 
 def build_response_from_runner_data(url: str, start: float, data: dict) -> ValidateSeoResponse:
     seo_raw = data.get("seo") or {}
@@ -204,6 +210,8 @@ def is_missing_playwright_browser_error(error: Exception) -> bool:
     )
 
 async def install_playwright_browser() -> tuple[bool, str]:
+    global _browser_install_attempted, _browser_install_message
+
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(local_cache))
     local_cache.mkdir(parents=True, exist_ok=True)
@@ -218,16 +226,47 @@ async def install_playwright_browser() -> tuple[bool, str]:
             timeout=180,
         )
 
+    async with _browser_install_lock:
+        if _browser_install_attempted and _browser_install_message.startswith("Playwright Chromium browser installed"):
+            return True, _browser_install_message
+
+        _browser_install_attempted = True
+
+        try:
+            result = await asyncio.to_thread(run_install)
+        except Exception as e:
+            _browser_install_message = f"Automatic Playwright browser install failed: {e}"
+            return False, _browser_install_message
+
+        if result.returncode == 0:
+            _browser_install_message = "Playwright Chromium browser installed automatically."
+            return True, _browser_install_message
+
+        details = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
+        _browser_install_message = f"Automatic Playwright browser install failed with exit code {result.returncode}: {details}"
+        return False, _browser_install_message
+
+def warm_playwright_browser_install() -> None:
+    global _browser_install_task
+
+    if _browser_install_task and not _browser_install_task.done():
+        return
+
     try:
-        result = await asyncio.to_thread(run_install)
-    except Exception as e:
-        return False, f"Automatic Playwright browser install failed: {e}"
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
 
-    if result.returncode == 0:
-        return True, "Playwright Chromium browser installed automatically."
+    _browser_install_task = loop.create_task(install_playwright_browser())
 
-    details = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
-    return False, f"Automatic Playwright browser install failed with exit code {result.returncode}: {details}"
+async def wait_for_warm_browser_install() -> tuple[bool, str] | None:
+    if not _browser_install_task:
+        return None
+
+    try:
+        return await asyncio.wait_for(asyncio.shield(_browser_install_task), timeout=240)
+    except asyncio.TimeoutError:
+        return False, "Playwright Chromium browser is still installing. Please retry SEO validation in a minute."
 
 async def validate_page(url: str) -> ValidateSeoResponse:
     start = time.time()
@@ -236,7 +275,8 @@ async def validate_page(url: str) -> ValidateSeoResponse:
         return await render_with_python_playwright(url, start)
     except Exception as e:
         if is_missing_playwright_browser_error(e):
-            installed, install_message = await install_playwright_browser()
+            warm_result = await wait_for_warm_browser_install()
+            installed, install_message = warm_result if warm_result is not None else await install_playwright_browser()
             if installed:
                 try:
                     return await render_with_python_playwright(url, start)
