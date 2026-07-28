@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from ..services.seo.schema import PageSpeedRequest, PageSpeedResponse
-from ..services.seo.pagespeed import fetch_pagespeed_metrics
+from services.seo.schema import PageSpeedRequest, PageSpeedResponse
+from services.seo.pagespeed import fetch_pagespeed_metrics
 
 router = APIRouter(prefix="/api/pagespeed", tags=["PageSpeed"])
 

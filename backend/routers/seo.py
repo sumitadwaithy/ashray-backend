@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
-from ..services.seo.schema import ValidateSeoRequest, ValidateSeoResponse, CrawlRequest, CrawlResponse
-from ..services.seo.validator import validate_page
-from ..services.seo.crawler import crawl_site
+from services.seo.schema import ValidateSeoRequest, ValidateSeoResponse, CrawlRequest, CrawlResponse
+from services.seo.validator import validate_page
+from services.seo.crawler import crawl_site
 
 router = APIRouter(prefix="/api/seo", tags=["SEO"])
 

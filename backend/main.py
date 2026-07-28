@@ -16,12 +16,22 @@ import httpx
 import uuid
 import hashlib
 from pathlib import Path
+import sys
+import platform
+import traceback
+import subprocess
 
-from .storage import (
+# Configure Playwright to use project-local cache if available
+base_dir = Path(__file__).parent.resolve()
+local_cache = base_dir / "playwright_browsers"
+if local_cache.exists():
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_cache)
+
+from storage import (
     save_upload, save_optimized, save_thumbnail, read_file,
     delete_file, ORIGINALS_DIR, OPTIMIZED_DIR, THUMBNAILS_DIR, TEMP_DIR
 )
-from .media_compression import auto_compress
+from media_compression import auto_compress
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +57,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------------------------
+# SEO & HEALTH ROUTERS (SAFE INTEGRATION)
+# -------------------------
+try:
+    from routers import seo as seo_router, analytics as analytics_router, pagespeed as pagespeed_router, health as health_router
+    app.include_router(seo_router.router)
+    app.include_router(analytics_router.router)
+    app.include_router(pagespeed_router.router)
+    app.include_router(health_router.router)
+except Exception as e:
+    logger.error(f"Failed to load SEO routers: {e}")
 
 # -------------------------
 # DATABASE SETUP
@@ -203,6 +225,7 @@ def get_db():
 
 # --- HEALTH CHECK ---
 @app.get("/api/health")
+@app.head("/api/health")
 async def health_check(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
@@ -245,7 +268,7 @@ async def startup_event():
     asyncio.create_task(keep_alive())
 
     try:
-        from .services.seo.playwright_check import check_playwright
+        from services.seo.playwright_check import check_playwright
 
         result = await check_playwright()
         if result["chromium_available"] and result["playwright_installed"]:
@@ -1838,6 +1861,79 @@ async def reset_ledger(request: Request, db: Session = Depends(get_db)):
         logger.error(f"❌ Reset Ledger Error on cloud backend: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Reset ledger failed: {str(e)}")
+
+@app.get("/api/seo/playwright-diagnostics")
+async def playwright_diagnostics():
+    diag = {}
+
+    diag["python_version"] = sys.version
+    diag["os"] = platform.platform()
+    diag["arch"] = platform.machine()
+    diag["playwright_browsers_path_env"] = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "(not set)")
+    diag["home_dir"] = str(Path.home())
+    diag["cwd"] = os.getcwd()
+
+    try:
+        import importlib.metadata as ilm
+        diag["playwright_version"] = ilm.version("playwright")
+    except Exception:
+        try:
+            import playwright
+            diag["playwright_version"] = getattr(playwright, "__version__", "unknown")
+        except ImportError:
+            diag["playwright_version"] = "not installed"
+            diag["note"] = "Playwright package not installed — cannot run remaining checks"
+            return diag
+
+    try:
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as p:
+            exe_path = p.chromium.executable_path
+            diag["expected_executable_path"] = exe_path
+            diag["executable_exists"] = os.path.exists(exe_path)
+            if diag["executable_exists"]:
+                diag["executable_is_executable"] = os.access(exe_path, os.X_OK)
+                try:
+                    diag["executable_size_bytes"] = os.path.getsize(exe_path)
+                except Exception:
+                    pass
+            else:
+                diag["executable_is_executable"] = False
+
+            try:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                    ],
+                )
+                diag["launch_success"] = True
+                await browser.close()
+            except Exception:
+                diag["launch_success"] = False
+                diag["launch_traceback"] = traceback.format_exc()
+    except Exception as e:
+        diag["error_playwright_api"] = str(e)
+        diag["launch_success"] = False
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium", "--dry-run"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        diag["dry_run_stdout"] = result.stdout
+        diag["dry_run_stderr"] = result.stderr
+        diag["dry_run_returncode"] = result.returncode
+    except Exception as e:
+        diag["dry_run_error"] = str(e)
+
+    return diag
 
 if __name__ == "__main__":
     import uvicorn
